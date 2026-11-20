@@ -8,6 +8,8 @@
 
 /** Current stable Flash model on the free tier. Override with GEMINI_MODEL if Google retires it. */
 export const DEFAULT_MODEL = 'gemini-3.8-flash';
+/** Faster, lighter free-tier model tried once when the main model is overloaded. */
+export const FALLBACK_MODEL = 'gemini-3.5-flash-lite';
 export const TIMEOUT_MS = 10_000;
 export const MAX_TEXT = 1000;
 const MAX_BODY_BYTES = 20_000;
@@ -90,29 +92,35 @@ export async function askGemini(prompt: string, opts: GeminiOptions = {}): Promi
   if (!key) return { status: 503, body: { error: UNAVAILABLE } };
 
   const model = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
+  // If the main model is overloaded (500/503), try the lighter one once, within the same time limit.
+  const models = model === FALLBACK_MODEL ? [model] : [model, FALLBACK_MODEL];
   const doFetch = opts.fetchImpl ?? fetch;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? TIMEOUT_MS);
 
   try {
-    const res = await doFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseJsonSchema: {
-            type: 'object',
-            properties: { text: { type: 'string' } },
-            required: ['text'],
+    let res!: Response;
+    for (const m of models) {
+      res = await doFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            responseJsonSchema: {
+              type: 'object',
+              properties: { text: { type: 'string' } },
+              required: ['text'],
+            },
+            temperature: 0.4,
+            thinkingConfig: { thinkingLevel: m === FALLBACK_MODEL ? 'minimal' : 'low' },
           },
-          temperature: 0.4,
-          thinkingConfig: { thinkingLevel: 'low' },
-        },
-      }),
-      signal: controller.signal,
-    });
+        }),
+        signal: controller.signal,
+      });
+      if (res.status !== 500 && res.status !== 503) break;
+    }
 
     if (res.status === 429) return { status: 429, body: { error: 'The AI is busy right now (free-tier limit). Try again in a minute.' } };
     if (res.status === 400 || res.status === 401 || res.status === 403) {

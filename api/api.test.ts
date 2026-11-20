@@ -106,7 +106,7 @@ describe('POST /api/shorten', () => {
     expect(busy.status).toBe(429);
     expect(busy.body.error).toMatch(/busy/);
 
-    fetchMock.mockResolvedValueOnce(new Response('oops', { status: 500 }));
+    fetchMock.mockResolvedValueOnce(new Response('oops', { status: 500 })).mockResolvedValueOnce(new Response('oops', { status: 500 }));
     expect((await call(shortenPOST, req(goodShorten))).status).toBe(502);
 
     fetchMock.mockRejectedValueOnce(new TypeError('network down'));
@@ -116,6 +116,24 @@ describe('POST /api/shorten', () => {
 
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ candidates: [] }), { status: 200 }));
     expect((await call(shortenPOST, req(goodShorten))).status).toBe(502);
+  });
+
+  it('falls back to the lighter model once when the main one is overloaded', async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response('{"error":{"code":503}}', { status: 503 }))
+      .mockResolvedValueOnce(geminiReply('Grandma baked for 30 years.'));
+    const { status, body } = await call(shortenPOST, req(goodShorten));
+    expect(status).toBe(200);
+    expect(body.text).toBe('Grandma baked for 30 years.');
+    const urls = fetchMock.mock.calls.map((c) => c[0] as string);
+    expect(urls[0]).toContain('gemini-3.8-flash:');
+    expect(urls[1]).toContain('gemini-3.5-flash-lite:');
+  });
+
+  it('does not retry on other errors', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('quota', { status: 429 }));
+    await call(shortenPOST, req(goodShorten));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('gives up after 10 seconds', async () => {
