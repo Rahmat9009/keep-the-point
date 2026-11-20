@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildCueItems, cutLabel, cutMarkers } from './cues';
+import { buildCueItems, cutLabel, cutMarkers, gapKey } from './cues';
 import { sampleTalk } from './sample';
 import { selectCards, type FitResult } from './select';
 
-const { cards, requiredPoints } = sampleTalk;
+const { requiredPoints } = sampleTalk;
+// These tests are about the cut/keep layout, so use the sample without its demo short version.
+const cards = sampleTalk.cards.map(({ short: _short, ...c }) => c);
 const keptAt = (cardList = cards, budget = 120) =>
   (selectCards(cardList, requiredPoints, budget) as FitResult).kept.map((c) => c.id);
 
@@ -57,5 +59,13 @@ describe('buildCueItems', () => {
     expect(items.map((i) => (i.kind === 'card' ? `${i.number}:${i.card.id}` : 'cut'))).toEqual([
       '1:1', '2:2', 'cut', '3:4', '4:5', '5:6', '6:7', '7:8',
     ]);
+  });
+});
+
+describe('gapKey', () => {
+  it('names the kept card before, the cut cards and the kept card after', () => {
+    const [marker] = cutMarkers(cards, keptAt());
+    expect(gapKey(marker)).toBe('2>3>4');
+    expect(gapKey({ after: null, cards: [cards[0]], before: cards[1] })).toBe('^>1>2');
   });
 });

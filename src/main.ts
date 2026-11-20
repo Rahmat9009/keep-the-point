@@ -4,7 +4,8 @@ import { sampleTalk } from './sample';
 import { capybaraSvg } from './capybara';
 import { openCueView, printSheetHtml, type CueView } from './cueView';
 import { openRehearsal } from './rehearsalView';
-import { MAX_CARDS } from './select';
+import { MAX_CARDS, shortenedLabel, spokenCard } from './select';
+import { AI_NOTICE, requestBridge, requestShorten, shortenTarget } from './ai';
 import { clearState, loadState, saveState, type SavedState } from './storage';
 import { cardTimeLabel, summarize } from './summary';
 import { addPoint, emptyTalk, moveCard, removePoint } from './talk';
@@ -81,6 +82,7 @@ app.innerHTML = `
 
       <section aria-labelledby="cards-h">
         <h2 id="cards-h">Cards <span id="card-count" class="count"></span></h2>
+        <p class="hint ai-notice">✨ ${AI_NOTICE}</p>
         <ol id="rows" class="rows"></ol>
         <p id="no-cards" class="hint" hidden>No cards yet. Paste an outline above or add a card.</p>
         <button id="add-card" type="button">+ Add card</button>
@@ -122,6 +124,16 @@ const openCuesBtn = $<HTMLButtonElement>('#open-cues');
 
 /** Cards the selection keeps right now (null when there's no shortened talk to rehearse). */
 let shortenedCards: Card[] | null = null;
+/** Kept cards that use their short version in the current selection. */
+let currentShortIds: string[] = [];
+
+/** Short-version drafts not accepted yet, by card id (not saved). */
+interface ShortDraft {
+  text: string;
+  loading?: boolean;
+  error?: string;
+}
+const drafts = new Map<string, ShortDraft>();
 
 /* ---------- State changes ---------- */
 
@@ -239,10 +251,36 @@ rowsEl.addEventListener('input', (e) => {
 
   if (el.dataset.field === 'text') {
     card.text = el.value;
+    const shortenBtn = row.querySelector<HTMLButtonElement>('[data-action="shorten"]');
+    if (shortenBtn && !drafts.get(card.id)?.loading) shortenBtn.disabled = !card.text.trim();
     if (card.estimated) {
       card.seconds = estimateSeconds(card.text);
       row.querySelector<HTMLInputElement>('[data-field="seconds"]')!.value = String(card.seconds);
     }
+    changed(false);
+  } else if (el.dataset.field === 'draft') {
+    const draft = drafts.get(card.id);
+    if (!draft) return;
+    draft.text = el.value;
+    row.querySelector('[data-ref="draft-est"]')!.textContent = draftEstimate(card, draft.text);
+  } else if (el.dataset.field === 'short' && card.short) {
+    if (!el.value.trim()) return; // keep the last non-empty text; "Remove" deletes it
+    card.short.text = el.value;
+    if (card.short.estimated) {
+      card.short.seconds = estimateSeconds(el.value);
+      row.querySelector<HTMLInputElement>('[data-field="short-seconds"]')!.value = String(card.short.seconds);
+    }
+    row.querySelector('[data-ref="short-saves"]')!.textContent = savesLabel(card);
+    changed(false);
+  } else if (el.dataset.field === 'short-seconds' && card.short) {
+    const n = Number(el.value);
+    const valid = el.value.trim() !== '' && Number.isInteger(n) && n >= 1 && n <= MAX_SECONDS;
+    el.toggleAttribute('aria-invalid', !valid);
+    if (!valid) return;
+    card.short.seconds = n;
+    card.short.estimated = false;
+    row.querySelector('[data-ref="short-saves"]')!.textContent = savesLabel(card);
+    row.querySelector('.row__short')?.classList.remove('short--est');
     changed(false);
   } else if (el.dataset.field === 'seconds') {
     const n = Number(el.value);
@@ -266,6 +304,13 @@ rowsEl.addEventListener('change', (e) => {
     case 'seconds': // leaving the field with an invalid value restores the last good one
       el.value = String(card.seconds);
       el.removeAttribute('aria-invalid');
+      return;
+    case 'short-seconds':
+      if (card.short) el.value = String(card.short.seconds);
+      el.removeAttribute('aria-invalid');
+      return;
+    case 'short':
+      if (card.short) el.value = card.short.text;
       return;
     case 'tag': {
       const point = el.value;
@@ -294,6 +339,7 @@ rowsEl.addEventListener('click', (e) => {
   const id = row.dataset.id!;
   const index = state.talk.cards.findIndex((c) => c.id === id);
   const action = btn.dataset.action!;
+  if (handleShortAction(action, state.talk.cards[index])) return;
 
   if (action === 'up' || action === 'down') {
     state.talk.cards = moveCard(state.talk.cards, index, action === 'up' ? -1 : 1);
@@ -312,22 +358,152 @@ rowsEl.addEventListener('click', (e) => {
   }
 });
 
+/* ---------- Short versions ---------- */
+
+/** Handle a short-version button. Returns true if `action` was one. */
+function handleShortAction(action: string, card: Card | undefined): boolean {
+  if (!card) return false;
+  switch (action) {
+    case 'shorten':
+      void shortenWithAi(card);
+      return true;
+    case 'write-own':
+      drafts.set(card.id, { text: '' });
+      renderShort(card.id, 'draft');
+      return true;
+    case 'accept': {
+      const draft = drafts.get(card.id);
+      if (!draft) return true;
+      const text = draft.text.trim();
+      if (!text) {
+        draft.error = 'Type a short version first, or discard it.';
+        renderShort(card.id, 'draft');
+        return true;
+      }
+      card.short = { text, seconds: estimateSeconds(text), estimated: true };
+      drafts.delete(card.id);
+      changed(false);
+      renderShort(card.id, 'short');
+      return true;
+    }
+    case 'discard':
+      drafts.delete(card.id);
+      renderShort(card.id, card.short ? 'short' : 'shorten');
+      return true;
+    case 'remove-short':
+      delete card.short;
+      changed(false);
+      renderShort(card.id, 'shorten');
+      return true;
+  }
+  return false;
+}
+
+async function shortenWithAi(card: Card) {
+  if (!card.text.trim()) return;
+  const id = card.id;
+  drafts.set(id, { text: drafts.get(id)?.text ?? '', loading: true });
+  renderShort(id);
+  const result = await requestShorten({
+    text: card.text,
+    targetSeconds: shortenTarget(card.seconds),
+    title: state.talk.title,
+    requiredPoints: state.talk.requiredPoints,
+  });
+  if (!cardById(id)) return; // deleted meanwhile
+  drafts.set(id, result.ok ? { text: result.text } : { text: '', error: result.message });
+  renderShort(id, 'draft');
+}
+
+function draftEstimate(card: Card, text: string): string {
+  if (!text.trim()) return '';
+  return `~${estimateSeconds(text)}s (full card ${card.estimated ? '~' : ''}${card.seconds}s)`;
+}
+
+function savesLabel(card: Card): string {
+  if (!card.short) return '';
+  const diff = card.seconds - card.short.seconds;
+  return diff > 0 ? `saves ${diff}s` : diff < 0 ? `${-diff}s longer than the full card` : 'same length as the full card';
+}
+
+function shortSectionHtml(card: Card, n: number): string {
+  const draft = drafts.get(card.id);
+  const noText = !card.text.trim();
+  const aiButton = (label: string) =>
+    `<button type="button" data-action="shorten" ${noText || draft?.loading ? 'disabled' : ''} ${noText ? 'title="Write the card first"' : ''}>${draft?.loading ? '✨ Shortening…' : label}</button>`;
+  const id = esc(card.id);
+
+  let html = '';
+  if (card.short) {
+    const s = card.short;
+    html += `
+      <label class="short__label" for="short-${id}">Short version</label>
+      <textarea id="short-${id}" class="short__text" rows="2" data-field="short">${esc(s.text)}</textarea>
+      <div class="short__meta">
+        <span class="row__secs"><span class="tilde" title="Estimated from word count">~</span><input type="number" min="1" max="${MAX_SECONDS}" step="1" data-field="short-seconds" value="${s.seconds}" aria-label="Card ${n} short version length in seconds" /><span aria-hidden="true">s</span></span>
+        <span class="hint" data-ref="short-saves">${esc(savesLabel(card))}</span>
+        <span class="short__buttons">${draft && !draft.loading ? '' : aiButton('✨ Suggest again')}<button type="button" data-action="remove-short" class="danger">Remove short version</button></span>
+      </div>`;
+  }
+  if (draft && !draft.loading) {
+    html += `
+      ${draft.error ? `<p class="error" role="alert">${esc(draft.error)}</p>` : ''}
+      <label class="short__label" for="draft-${id}">${card.short ? 'New suggestion' : 'Short version'} <span class="hint">(not used until you accept it)</span></label>
+      <textarea id="draft-${id}" class="short__text short__text--draft" rows="2" data-field="draft" placeholder="Write a shorter way to say this card">${esc(draft.text)}</textarea>
+      <div class="short__meta">
+        <span class="hint" data-ref="draft-est">${esc(draftEstimate(card, draft.text))}</span>
+        <span class="short__buttons">
+          <button type="button" data-action="accept" class="primary">${card.short ? 'Replace' : 'Accept'}</button>
+          <button type="button" data-action="discard">Discard</button>
+        </span>
+      </div>`;
+  } else if (!card.short) {
+    html += `<div class="short__buttons">${aiButton('✨ Shorten')}${draft?.loading ? '' : '<button type="button" data-action="write-own">Write my own short version</button>'}</div>`;
+  }
+  return html;
+}
+
+/** Re-render one row's short-version area and optionally move focus into it. */
+function renderShort(id: string, focus?: 'draft' | 'short' | 'shorten') {
+  const row = rowsEl.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`);
+  const card = cardById(id);
+  if (!row || !card) return;
+  const box = row.querySelector<HTMLElement>('.row__short')!;
+  box.classList.toggle('short--est', !!card.short?.estimated);
+  box.innerHTML = shortSectionHtml(card, state.talk.cards.indexOf(card) + 1);
+  const target =
+    focus === 'draft'
+      ? '[data-field="draft"]'
+      : focus === 'short'
+        ? '[data-field="short"]'
+        : focus === 'shorten'
+          ? '[data-action="shorten"]:not([disabled]), [data-action="write-own"]'
+          : null;
+  if (target) box.querySelector<HTMLElement>(target)?.focus();
+}
+
 /* ---------- Rehearsal ---------- */
 
-function startRehearsal(label: string, cards: Card[], trigger: HTMLButtonElement) {
+function startRehearsal(label: string, cards: Card[], trigger: HTMLButtonElement, shortIds: string[] = []) {
   const limit = parseTime(state.limit);
   if (limit === null || cards.length === 0) return;
   openRehearsal({
     label,
-    cards: structuredClone(cards),
+    cards: structuredClone(cards.map((c) => spokenCard(c, shortIds))),
     talk: structuredClone(state.talk),
+    shortIds,
     limitSeconds: limit,
     onSave(measured) {
       for (const card of state.talk.cards) {
         const seconds = measured.get(card.id);
         if (seconds === undefined) continue;
-        card.seconds = seconds;
-        card.estimated = false;
+        if (shortIds.includes(card.id) && card.short) {
+          card.short.seconds = seconds;
+          card.short.estimated = false;
+        } else {
+          card.seconds = seconds;
+          card.estimated = false;
+        }
       }
       changed(true);
     },
@@ -354,6 +530,14 @@ openCuesBtn.addEventListener('click', () => {
       card.locked = false;
       changed(true);
     },
+    setBridge(key, text) {
+      const bridges = (state.talk.bridges ??= {});
+      if (text.trim()) bridges[key] = text;
+      else delete bridges[key];
+      printSheet.innerHTML = printSheetHtml(state.talk, parseTime(state.limit));
+      saveState(state);
+    },
+    requestBridge,
     onClose() {
       cueView = null;
       openCuesBtn.focus();
@@ -363,7 +547,7 @@ openCuesBtn.addEventListener('click', () => {
 
 rehearseFull.addEventListener('click', () => startRehearsal('Full talk', state.talk.cards, rehearseFull));
 rehearseShort.addEventListener('click', () => {
-  if (shortenedCards) startRehearsal('Shortened talk', shortenedCards, rehearseShort);
+  if (shortenedCards) startRehearsal('Shortened talk', shortenedCards, rehearseShort, currentShortIds);
 });
 
 function updateRehearseButtons(fits: boolean, limitValid: boolean) {
@@ -438,6 +622,7 @@ function renderEditor() {
               <button type="button" data-action="delete" class="danger" aria-label="Delete card ${n}">Delete</button>
             </span>
           </div>
+          <div class="row__short ${card.short?.estimated ? 'short--est' : ''}">${shortSectionHtml(card, n)}</div>
         </li>`;
     })
     .join('');
@@ -460,6 +645,7 @@ function renderResults() {
   summaryEl.className = `summary ${summary.tone === 'bad' ? 'summary--bad' : summary.tone === 'quiet' ? 'summary--quiet' : ''}`;
   summaryEl.textContent = summary.text;
   shortenedCards = result?.fits ? result.kept : null;
+  currentShortIds = summary.shortIds;
   updateRehearseButtons(!!result?.fits, true);
 
   tooManyEl.hidden = cards.length <= MAX_CARDS;
@@ -473,19 +659,22 @@ function renderResults() {
   const reasons = new Map(result.fits ? result.cut.map((c) => [c.card.id, c.reason]) : []);
 
   const keptIds = new Set(keptCards.map((c) => c.id));
+  const shortIds = summary.shortIds;
   resultCards.innerHTML = cards
     .map((card) => {
       const kept = keptIds.has(card.id);
+      const isShort = kept && !!card.short && shortIds.includes(card.id);
       const reason = kept ? '' : (reasons.get(card.id) ?? (result.fits ? '' : 'Not in the shortest valid talk'));
       const meta = [card.locked ? 'Always keep' : null, card.tags.join(', ') || null, card.priority !== undefined ? `Priority ${card.priority}` : null]
         .filter(Boolean)
         .join(' · ');
       return `
-        <li class="card ${kept ? '' : 'card--cut'}">
+        <li class="card ${kept ? '' : 'card--cut'} ${isShort ? 'card--short' : ''}">
           <div class="card__main">
             <span class="card__text">${esc(card.text) || '<em>(empty card)</em>'}</span>
-            <span class="card__time">${cardTimeLabel(card)}</span>
+            <span class="card__time">${cardTimeLabel(spokenCard(card, shortIds))}</span>
           </div>
+          ${isShort ? `<div class="card__short"><strong>${esc(shortenedLabel(card))}</strong> <span>“${esc(card.short!.text)}”</span></div>` : ''}
           ${meta ? `<div class="card__meta">${esc(meta)}</div>` : ''}
           ${reason ? `<div class="card__reason">${esc(reason)}</div>` : ''}
         </li>`;

@@ -68,3 +68,8 @@ export function cutLabel(marker: CutMarker): string {
     .map((c) => `${c.text.trim() || '(empty card)'} (${c.estimated ? '~' : ''}${c.seconds}s)`)
     .join(', ');
 }
+
+/** Stable id for a gap, used to store its bridge line: kept card before, cut cards, kept card after. */
+export function gapKey(marker: Pick<CutMarker, 'after' | 'cards' | 'before'>): string {
+  return `${marker.after?.id ?? '^'}>${marker.cards.map((c) => c.id).join(',')}>${marker.before?.id ?? '$'}`;
+}

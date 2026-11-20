@@ -320,3 +320,43 @@ textarea.title {
   .print-sheet .cue-empty { background: none; border: 0.3mm solid #000; }
   .print-sheet .ps-foot { break-inside: avoid; display: flex; align-items: center; gap: 4mm; margin-top: 6mm; font-size: 9pt; color: #444; }
 }
+
+/* ---------- AI: short versions and bridge lines ---------- */
+.ai-notice { margin-top: -4px; }
+.row__short { margin: 8px 0 0 calc(1.5em + 8px); font-size: 0.9rem; }
+.row__short:empty { display: none; }
+.short__label { display: block; font-weight: 600; margin-bottom: 2px; }
+.short__text { display: block; }
+.short__text--draft { border-style: dashed; }
+.short__meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin-top: 4px; }
+.short__buttons { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.short__meta .short__buttons { margin-left: auto; }
+.row__short .error { margin: 4px 0; }
+.row__short .row__secs input { width: 4.5em; }
+.short--est .tilde { visibility: visible; }
+.short--est .row__secs input { font-style: italic; color: var(--muted); }
+
+.card__short { font-size: 0.85rem; margin-top: 2px; }
+.card__short strong { color: var(--accent); }
+.card__short span { font-style: italic; }
+
+.cue-short { font-size: 0.8rem; font-weight: 600; color: var(--accent); }
+.cue-bridge { margin: 0 0 6px; font-size: 0.9rem; color: var(--muted); }
+.cue-bridge em { color: var(--text); }
+.cue-bridge__secs { font-variant-numeric: tabular-nums; }
+.cue-bridge-tools {
+  position: relative; max-width: 34rem; margin: 8px auto 0; padding: 8px 10px; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; font-size: 0.9rem;
+}
+.cue-bridge-tools__label { display: block; font-weight: 600; }
+.cue-bridge-tools__label input { display: block; width: 100%; margin-top: 2px; font-weight: 400; }
+.cue-bridge-tools__buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.cue-bridge-tools .error { margin: 0 0 4px; }
+.cue-ai-notice { margin: 6px 0 0; font-size: 0.8rem; }
+.cue-total__bridges { color: var(--muted); }
+
+@media print {
+  .print-sheet .cue-bridge { font-size: 10pt; color: #000; margin-bottom: 2mm; }
+  .print-sheet .cue-bridge em { color: #000; }
+  .print-sheet .cue-short { color: #000; font-size: 10pt; }
+}

@@ -77,11 +77,23 @@ export function parseSavedState(data: unknown): SavedState | null {
       card.priority = c.priority;
     }
     if (c.estimated === true) card.estimated = true;
+    const sh = c.short;
+    if (isObject(sh) && isString(sh.text) && sh.text.trim() && typeof sh.seconds === 'number' && Number.isFinite(sh.seconds) && sh.seconds >= 1) {
+      card.short = { text: sh.text, seconds: Math.round(sh.seconds) };
+      if (sh.estimated === true) card.short.estimated = true;
+    }
     cards.push(card);
   }
 
+  const bridges: Record<string, string> = {};
+  if (isObject(t.bridges)) {
+    for (const [key, text] of Object.entries(t.bridges)) {
+      if (isString(text) && text.trim() && text.length <= 500) bridges[key] = text;
+    }
+  }
+
   return {
-    talk: { title: isString(t.title) && t.title.trim() ? t.title : 'My talk', cards, requiredPoints },
+    talk: { title: isString(t.title) && t.title.trim() ? t.title : 'My talk', cards, requiredPoints, ...(Object.keys(bridges).length ? { bridges } : {}) },
     limit: isString(data.limit) ? data.limit : '2:00',
   };
 }

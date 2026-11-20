@@ -1,0 +1,51 @@
+/** Browser side of the AI features. The key never reaches the browser: these call our own /api routes. */
+
+export const AI_NOTICE = "AI suggestions are sent to Google Gemini. Don't include private information.";
+export const SHORTEN_UNAVAILABLE = 'AI unavailable. Write your own short version.';
+export const BRIDGE_UNAVAILABLE = 'AI unavailable. Write your own bridge line.';
+
+export type AiResult = { ok: true; text: string } | { ok: false; message: string };
+
+export interface ShortenRequest {
+  text: string;
+  targetSeconds: number;
+  title: string;
+  requiredPoints: string[];
+}
+
+export interface BridgeRequest {
+  before: string | null;
+  cut: string[];
+  after: string;
+  title: string;
+}
+
+/** About half the card's time, at least 3 seconds. */
+export function shortenTarget(seconds: number): number {
+  return Math.max(3, Math.round(seconds / 2));
+}
+
+export const requestShorten = (req: ShortenRequest) => post('/api/shorten', req, SHORTEN_UNAVAILABLE);
+export const requestBridge = (req: BridgeRequest) => post('/api/bridge', req, BRIDGE_UNAVAILABLE);
+
+async function post(url: string, body: unknown, unavailable: string, fetchImpl: typeof fetch = fetch): Promise<AiResult> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const res = await fetchImpl(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const data = (await res.json().catch(() => null)) as { text?: unknown; error?: unknown } | null;
+    if (res.ok && typeof data?.text === 'string' && data.text.trim()) return { ok: true, text: data.text.trim() };
+    // The server's own "AI unavailable" (no key) adds nothing; other errors (busy, timeout) are worth showing.
+    const detail = typeof data?.error === 'string' && !data.error.startsWith('AI unavailable') ? ` (${data.error})` : '';
+    return { ok: false, message: `${unavailable}${detail}` };
+  } catch {
+    return { ok: false, message: unavailable };
+  } finally {
+    clearTimeout(timer);
+  }
+}

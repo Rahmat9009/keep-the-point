@@ -10,6 +10,8 @@ export interface RehearsalOptions {
   cards: Card[];
   /** The whole talk, used to work out the new selection with the measured times. */
   talk: Talk;
+  /** Ids of cards rehearsed as their short version: measured times belong to the short version. */
+  shortIds?: string[];
   limitSeconds: number;
   /** Called with measured seconds per card id when the student saves. */
   onSave(seconds: Map<string, number>): void;
@@ -163,9 +165,13 @@ export function openRehearsal(opts: RehearsalOptions): () => void {
     const measured = new Map(cards.map((c, i) => [c.id, msToCardSeconds(s.durationsMs[i] ?? 0)]));
     const oldTotal = cards.reduce((t, c) => t + c.seconds, 0);
     const newTotal = [...measured.values()].reduce((t, n) => t + n, 0);
-    const updatedTalkCards = opts.talk.cards.map((c) =>
-      measured.has(c.id) ? { ...c, seconds: measured.get(c.id)!, estimated: false } : c,
-    );
+    const updatedTalkCards = opts.talk.cards.map((c) => {
+      if (!measured.has(c.id)) return c;
+      const seconds = measured.get(c.id)!;
+      return c.short && opts.shortIds?.includes(c.id)
+        ? { ...c, short: { ...c.short, seconds, estimated: false } }
+        : { ...c, seconds, estimated: false };
+    });
     const summary = summarize(updatedTalkCards, opts.talk.requiredPoints, limitSeconds);
     const cut = summary.result?.fits ? summary.result.cut.map((c) => c.card.text || '(empty card)') : [];
 

@@ -1,39 +1,76 @@
+import { AI_NOTICE, type AiResult, type BridgeRequest } from './ai';
 import { capybaraSvg } from './capybara';
-import { buildCueItems, cutLabel } from './cues';
+import { buildCueItems, cutLabel, gapKey, type CutMarker } from './cues';
+import { estimateSeconds } from './outline';
+import { shortenedLabel, spokenCard } from './select';
 import { cardTimeLabel, summarize, timeLabel } from './summary';
 import { formatTime } from './time';
 import type { Talk } from './types';
 
+/** On-screen state of the bridge tools (not saved). */
+export interface BridgeUi {
+  /** Gaps waiting for an AI answer. */
+  loading: Set<string>;
+  /** Gaps whose bridge editor is open even though the line is still empty. */
+  editing: Set<string>;
+  /** Last error per gap. */
+  errors: Map<string, string>;
+}
+
+const bridgeSeconds = (text: string) => estimateSeconds(text);
+
 /**
- * HTML for the cue-card sheet. `interactive` adds the "Keep this card" controls
- * on cut markers (on screen); the print sheet uses the plain version.
+ * HTML for the cue-card sheet. `interactive` adds the "Keep this card" and bridge
+ * controls on cut markers (on screen); the print sheet uses the plain version.
  */
-export function cueSheetHtml(talk: Talk, budgetSeconds: number, interactive: boolean): string {
+export function cueSheetHtml(talk: Talk, budgetSeconds: number, interactive: boolean, ui?: BridgeUi): string {
   const summary = summarize(talk.cards, talk.requiredPoints, budgetSeconds);
   if (!summary.result?.fits) {
     return `<p class="cue-empty">${esc(summary.text)}</p>`;
   }
   const result = summary.result;
   const items = buildCueItems(talk.cards, result.kept.map((c) => c.id));
+  const bridges = talk.bridges ?? {};
+  let bridgeTotal = 0;
+  /** Bridge line waiting to be shown at the top of the next card. */
+  let pendingBridge: { key: string; text: string } | null = null;
 
   const body = items
     .map((item, i) => {
       if (item.kind === 'card') {
-        const { card, number } = item;
+        const { card: original, number } = item;
+        const card = spokenCard(original, result.shortIds);
+        const isShort = card !== original;
         const tags = card.tags.length
           ? `<ul class="cue-tags" aria-label="Covers">${card.tags.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`
           : '';
+        const bridge = pendingBridge;
+        pendingBridge = null;
+        const bridgeHtml = bridge
+          ? `<p class="cue-bridge" data-bridge-show="${esc(bridge.key)}" ${bridge.text.trim() ? '' : 'hidden'}><em data-ref="bridge-text">${esc(bridge.text)}</em> <span class="cue-bridge__secs" data-ref="bridge-secs">~${bridgeSeconds(bridge.text)}s</span></p>`
+          : '';
         return `
-          <article class="cue-card">
+          <article class="cue-card ${isShort ? 'cue-card--short' : ''}">
+            ${bridgeHtml}
             <div class="cue-card__head">
               <span class="cue-num" aria-label="Card ${number}">${number}</span>
               ${card.locked ? '<span class="cue-lock">Always keep</span>' : ''}
+              ${isShort ? `<span class="cue-short">${esc(shortenedLabel(original))}</span>` : ''}
               <span class="cue-secs">${cardTimeLabel(card)}</span>
             </div>
             <p class="cue-text">${esc(card.text) || '<em>(empty card)</em>'}</p>
             ${tags}
           </article>`;
       }
+
+      // A bridge leads into the next kept card, so it needs one.
+      const key = gapKey(item);
+      const bridgeText = item.before ? (bridges[key] ?? '') : '';
+      if (item.before && (bridgeText.trim() || interactive)) {
+        pendingBridge = { key, text: bridgeText };
+        if (bridgeText.trim()) bridgeTotal += bridgeSeconds(bridgeText);
+      }
+
       const label = `✂ Cut here: ${esc(cutLabel(item))}`;
       if (!interactive) return `<div class="cue-cut"><span>${label}</span></div>`;
       const menuId = `cut-menu-${i}`;
@@ -44,17 +81,40 @@ export function cueSheetHtml(talk: Talk, budgetSeconds: number, interactive: boo
         <div class="cue-cut">
           <button type="button" class="cue-cut__toggle" aria-expanded="false" aria-controls="${menuId}">${label}</button>
           <div class="cue-cut__menu" id="${menuId}" hidden>${keepButtons}</div>
+          ${item.before ? bridgeToolsHtml(key, bridgeText, ui) : ''}
         </div>`;
     })
     .join('');
 
-  const anyEst = result.kept.some((c) => c.estimated);
+  const anyEst = result.kept.some((c) => spokenCard(c, result.shortIds).estimated);
   return `
     <div class="cue-list">${body}</div>
     <p class="cue-total">
       <strong>Total ${timeLabel(result.totalSeconds, anyEst)}</strong>
       · ${result.spareSeconds}s spare · limit ${formatTime(budgetSeconds)}
+      <span class="cue-total__bridges" data-ref="bridge-total">${bridgeTotal ? `· bridge lines add ~${bridgeTotal}s` : ''}</span>
     </p>`;
+}
+
+function bridgeToolsHtml(key: string, text: string, ui?: BridgeUi): string {
+  const k = esc(key);
+  const loading = ui?.loading.has(key) ?? false;
+  const error = ui?.errors.get(key);
+  const open = !!text.trim() || (ui?.editing.has(key) ?? false);
+  const aiButton = `<button type="button" data-bridge-ai="${k}" ${loading ? 'disabled' : ''}>${loading ? '✨ Thinking…' : open ? '✨ Suggest again' : '✨ Suggest bridge'}</button>`;
+  return `
+    <div class="cue-bridge-tools" data-gap="${k}">
+      ${error ? `<p class="error" role="alert">${esc(error)}</p>` : ''}
+      ${
+        open
+          ? `<label class="cue-bridge-tools__label">Bridge line <span class="hint">(max 15 words, shown in italics on the next card)</span>
+               <input type="text" data-bridge-input="${k}" value="${esc(text)}" maxlength="200" placeholder="One sentence that links the cards" />
+             </label>
+             <div class="cue-bridge-tools__buttons">${aiButton}<button type="button" data-bridge-remove="${k}">Remove</button></div>`
+          : `<div class="cue-bridge-tools__buttons">${aiButton}<button type="button" data-bridge-own="${k}">Write my own</button></div>`
+      }
+      <p class="hint cue-ai-notice">${esc(AI_NOTICE)}</p>
+    </div>`;
 }
 
 /** The hidden sheet that only appears when printing. */
@@ -80,6 +140,9 @@ export interface CueViewOptions {
   keepCard(id: string): void;
   /** Undo a keep. */
   unlockCard(id: string): void;
+  /** Save (or, with empty text, remove) the bridge line for a gap. Does not re-render the cue view. */
+  setBridge(key: string, text: string): void;
+  requestBridge(req: BridgeRequest): Promise<AiResult>;
   onClose(): void;
 }
 
@@ -118,6 +181,7 @@ export function openCueView(opts: CueViewOptions): CueView {
   const sheet = ref('sheet');
   const notice = ref('notice');
   let lastKept: { id: string; text: string } | null = null;
+  const bridgeUi: BridgeUi = { loading: new Set(), editing: new Set(), errors: new Map() };
   let closed = false;
 
   const previousOverflow = document.body.style.overflow;
@@ -149,6 +213,29 @@ export function openCueView(opts: CueViewOptions): CueView {
       showKeptNotice();
       return;
     }
+    const ai = target.closest<HTMLButtonElement>('[data-bridge-ai]');
+    if (ai) {
+      void suggestBridge(ai.dataset.bridgeAi!);
+      return;
+    }
+    const own = target.closest<HTMLButtonElement>('[data-bridge-own]');
+    if (own) {
+      const key = own.dataset.bridgeOwn!;
+      bridgeUi.editing.add(key);
+      refresh();
+      focusBridgeInput(key);
+      return;
+    }
+    const remove = target.closest<HTMLButtonElement>('[data-bridge-remove]');
+    if (remove) {
+      const key = remove.dataset.bridgeRemove!;
+      bridgeUi.editing.delete(key);
+      bridgeUi.errors.delete(key);
+      opts.setBridge(key, '');
+      refresh();
+      root.querySelector<HTMLElement>(`[data-bridge-ai="${CSS.escape(key)}"]`)?.focus();
+      return;
+    }
     if (target.closest('[data-ref="undo"]') && lastKept) {
       opts.unlockCard(lastKept.id);
       notice.hidden = true;
@@ -157,8 +244,75 @@ export function openCueView(opts: CueViewOptions): CueView {
     }
   });
 
+  // Typing a bridge line saves it and updates the next card in place (no re-render, so focus stays).
+  root.addEventListener('input', (e) => {
+    const input = (e.target as HTMLElement).closest<HTMLInputElement>('[data-bridge-input]');
+    if (!input) return;
+    const key = input.dataset.bridgeInput!;
+    opts.setBridge(key, input.value);
+    const show = root.querySelector<HTMLElement>(`[data-bridge-show="${CSS.escape(key)}"]`);
+    if (show) {
+      show.hidden = !input.value.trim();
+      show.querySelector('[data-ref="bridge-text"]')!.textContent = input.value;
+      show.querySelector('[data-ref="bridge-secs"]')!.textContent = `~${estimateSeconds(input.value)}s`;
+    }
+    const total = [...root.querySelectorAll<HTMLInputElement>('[data-bridge-input]')]
+      .filter((i) => i.value.trim())
+      .reduce((t, i) => t + estimateSeconds(i.value), 0);
+    const totalEl = root.querySelector<HTMLElement>('[data-ref="bridge-total"]');
+    if (totalEl) totalEl.textContent = total ? `· bridge lines add ~${total}s` : '';
+  });
+
   refresh();
   ref<HTMLButtonElement>('close').focus();
+
+  function focusBridgeInput(key: string) {
+    const input = root.querySelector<HTMLInputElement>(`[data-bridge-input="${CSS.escape(key)}"]`);
+    input?.focus();
+    input?.select();
+  }
+
+  function markerFor(key: string): CutMarker | null {
+    const { talk, limitSeconds } = opts.getState();
+    if (limitSeconds === null) return null;
+    const result = summarize(talk.cards, talk.requiredPoints, limitSeconds).result;
+    if (!result?.fits) return null;
+    const items = buildCueItems(talk.cards, result.kept.map((c) => c.id));
+    const marker = items.find((i): i is CutMarker => i.kind === 'cut' && gapKey(i) === key);
+    if (!marker) return null;
+    // Send what will actually be said: short versions where the selection uses them.
+    const say = (c: CutMarker['after']) => (c ? spokenCard(c, result.shortIds) : null);
+    return { ...marker, after: say(marker.after), before: say(marker.before) };
+  }
+
+  async function suggestBridge(key: string) {
+    const marker = markerFor(key);
+    if (!marker?.before) return;
+    const { talk } = opts.getState();
+    const cut = marker.cards.map((c) => c.text.trim()).filter(Boolean);
+    bridgeUi.errors.delete(key);
+    if (!marker.before.text.trim() || cut.length === 0) {
+      bridgeUi.errors.set(key, 'The cards around this cut need some text first.');
+      bridgeUi.editing.add(key);
+      refresh();
+      return;
+    }
+    bridgeUi.loading.add(key);
+    refresh();
+    const result = await opts.requestBridge({
+      before: marker.after?.text.trim() || null,
+      cut,
+      after: marker.before.text,
+      title: talk.title,
+    });
+    bridgeUi.loading.delete(key);
+    if (closed) return;
+    bridgeUi.editing.add(key);
+    if (result.ok) opts.setBridge(key, result.text);
+    else bridgeUi.errors.set(key, result.message);
+    refresh();
+    focusBridgeInput(key);
+  }
 
   function showKeptNotice() {
     if (!lastKept) return;
@@ -177,7 +331,7 @@ export function openCueView(opts: CueViewOptions): CueView {
     sheet.innerHTML =
       limitSeconds === null
         ? '<p class="cue-empty">Enter a valid time limit to see your cue cards.</p>'
-        : cueSheetHtml(talk, limitSeconds, true);
+        : cueSheetHtml(talk, limitSeconds, true, bridgeUi);
   }
 
   function onKeyDown(e: KeyboardEvent) {

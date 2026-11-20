@@ -1,6 +1,11 @@
 import type { Card } from './types';
 
 export const MAX_CARDS = 12;
+/** A short version counts for this share of the card's priority. */
+export const SHORT_PRIORITY_SHARE = 0.6;
+
+/** How a card is used: said in full, said as its short version, or cut. */
+export type CardMode = 'full' | 'short' | 'cut';
 
 export interface CutCard {
   card: Card;
@@ -13,8 +18,10 @@ export type Coverage = Record<string, Card[]>;
 
 export interface FitResult {
   fits: true;
-  /** Kept cards, in original order. */
+  /** Kept cards (full or short), in original order. These are the original cards: use spokenCard() for what is said. */
   kept: Card[];
+  /** Ids of kept cards that use their short version. */
+  shortIds: string[];
   /** Cut cards, in original order, each with a reason. */
   cut: CutCard[];
   totalSeconds: number;
@@ -29,15 +36,33 @@ export interface NoFitResult {
    * The shortest talk that keeps every locked card and still covers every required point.
    * Null when no such talk exists (some required point has no card tagged with it).
    */
-  shortest: { cards: Card[]; totalSeconds: number; overBySeconds: number } | null;
+  shortest: { cards: Card[]; shortIds: string[]; totalSeconds: number; overBySeconds: number } | null;
   /** Required points that no card is tagged with at all. */
   uncoverablePoints: string[];
 }
 
 export type SelectionResult = FitResult | NoFitResult;
 
-const priorityOf = (card: Card) => card.priority ?? 0;
-const sumSeconds = (cards: Card[]) => cards.reduce((t, c) => t + c.seconds, 0);
+export function hasShort(card: Card): boolean {
+  return !!card.short && card.short.text.trim() !== '' && card.short.seconds >= 1;
+}
+
+/** The card as it will be said: its short version if the selection shortened it. */
+export function spokenCard(card: Card, shortIds: Iterable<string>): Card {
+  if (!card.short || !new Set(shortIds).has(card.id)) return card;
+  return { ...card, text: card.short.text, seconds: card.short.seconds, estimated: card.short.estimated };
+}
+
+/** "Shortened: 46s → 12s" (with ~ for estimates). */
+export function shortenedLabel(card: Card): string {
+  const s = card.short;
+  if (!s) return '';
+  return `Shortened: ${card.estimated ? '~' : ''}${card.seconds}s → ${s.estimated ? '~' : ''}${s.seconds}s`;
+}
+
+// Priorities are compared in tenths so 60% stays an exact integer.
+const fullScore = (card: Card) => (card.priority ?? 0) * 10;
+const shortScore = (card: Card) => (card.priority ?? 0) * 10 * SHORT_PRIORITY_SHARE;
 
 function coverageOf(kept: Card[], requiredPoints: string[]): Coverage {
   const coverage: Coverage = {};
@@ -62,12 +87,20 @@ function cutReason(card: Card, kept: Card[]): string {
   return `Optional — ${saves}`;
 }
 
+const CUT = 0;
+const FULL = 1;
+const SHORT = 2;
+
 /**
- * Pick which cards to keep so the talk fits in `budgetSeconds`.
+ * Pick how to use each card so the talk fits in `budgetSeconds`.
  *
- * Locked cards are always kept. Every combination of the unlocked cards is tried;
- * combinations that run over budget or leave a required point uncovered are thrown out.
- * The winner has the highest total priority, then (on a tie) uses the most time.
+ * Locked cards are always said in full. Every other card can be FULL, SHORT (if it has a
+ * short version) or CUT, and every combination is tried (at most 3^12 = 531,441).
+ * Combinations that run over budget or leave a required point uncovered are thrown out;
+ * a tagged card can be cut only when another kept card covers its points.
+ * A short version scores 60% of the card's priority.
+ * The winner has the highest total priority, then (on a tie) uses the most time,
+ * then (still tied) is the first one found in a fixed search order over the cards as listed.
  */
 export function selectCards(
   cards: Card[],
@@ -80,59 +113,77 @@ export function selectCards(
 
   const locked = cards.filter((c) => c.locked);
   const unlocked = cards.filter((c) => !c.locked);
-  const lockedSeconds = sumSeconds(locked);
-  const lockedPriority = locked.reduce((t, c) => t + priorityOf(c), 0);
+  const n = unlocked.length;
 
-  // Best combination that fits the budget.
-  let best: { mask: number; priority: number; seconds: number } | null = null;
-  // Shortest combination that covers every point, ignoring the budget (fallback).
-  let shortest: { mask: number; priority: number; seconds: number } | null = null;
+  // Required points as bits, so coverage is one OR per card.
+  const pointBit = new Map(requiredPoints.map((p, i) => [p, i]));
+  const maskOf = (card: Card) => card.tags.reduce((m, t) => (pointBit.has(t) ? m | 2 ** pointBit.get(t)! : m), 0);
+  const useBits = requiredPoints.length <= 30;
+  const allPoints = useBits ? 2 ** requiredPoints.length - 1 : 0;
 
-  const combos = 1 << unlocked.length; // at most 4,096
-  for (let mask = 0; mask < combos; mask++) {
+  const lockedSeconds = locked.reduce((t, c) => t + c.seconds, 0);
+  const lockedScore = locked.reduce((t, c) => t + fullScore(c), 0);
+  const lockedMask = locked.reduce((m, c) => m | maskOf(c), 0);
+
+  const radix = unlocked.map((c) => (hasShort(c) ? 3 : 2));
+  const secs = unlocked.map((c) => [0, c.seconds, c.short?.seconds ?? 0]);
+  const score = unlocked.map((c) => [0, fullScore(c), shortScore(c)]);
+  const masks = unlocked.map(maskOf);
+
+  const coversAll = (modes: number[]): boolean => {
+    if (useBits) {
+      let m = lockedMask;
+      for (let i = 0; i < n; i++) if (modes[i] !== CUT) m |= masks[i];
+      return (m & allPoints) === allPoints;
+    }
+    return requiredPoints.every(
+      (p) => locked.some((c) => c.tags.includes(p)) || unlocked.some((c, i) => modes[i] !== CUT && c.tags.includes(p)),
+    );
+  };
+
+  type Pick = { modes: number[]; score: number; seconds: number };
+  let best: Pick | null = null;
+  let shortest: Pick | null = null;
+
+  // Odometer over all mode combinations, first card changing fastest (the same order as
+  // the original keep/cut bitmask search), with FULL tried before SHORT for each card.
+  const modes = new Array<number>(n).fill(CUT);
+  for (;;) {
     let seconds = lockedSeconds;
-    let priority = lockedPriority;
-    const chosen: Card[] = [...locked];
-    for (let i = 0; i < unlocked.length; i++) {
-      if (mask & (1 << i)) {
-        const card = unlocked[i];
-        seconds += card.seconds;
-        priority += priorityOf(card);
-        chosen.push(card);
+    let total = lockedScore;
+    for (let i = 0; i < n; i++) {
+      seconds += secs[i][modes[i]];
+      total += score[i][modes[i]];
+    }
+
+    if (coversAll(modes)) {
+      if (!shortest || seconds < shortest.seconds || (seconds === shortest.seconds && total > shortest.score)) {
+        shortest = { modes: [...modes], score: total, seconds };
+      }
+      if (
+        seconds <= budgetSeconds &&
+        (!best || total > best.score || (total === best.score && seconds > best.seconds))
+      ) {
+        best = { modes: [...modes], score: total, seconds };
       }
     }
 
-    const coversAll = requiredPoints.every((p) => chosen.some((c) => c.tags.includes(p)));
-    if (!coversAll) continue;
-
-    if (
-      !shortest ||
-      seconds < shortest.seconds ||
-      (seconds === shortest.seconds && priority > shortest.priority)
-    ) {
-      shortest = { mask, priority, seconds };
-    }
-
-    if (seconds > budgetSeconds) continue;
-    if (
-      !best ||
-      priority > best.priority ||
-      (priority === best.priority && seconds > best.seconds)
-    ) {
-      best = { mask, priority, seconds };
-    }
+    let i = 0;
+    while (i < n && modes[i] === radix[i] - 1) modes[i++] = CUT;
+    if (i >= n) break;
+    modes[i] += 1;
   }
 
-  const keptFor = (mask: number) => {
-    const keptIds = new Set(locked.map((c) => c.id));
-    unlocked.forEach((c, i) => {
-      if (mask & (1 << i)) keptIds.add(c.id);
-    });
-    return cards.filter((c) => keptIds.has(c.id)); // original order
+  const split = (pick: Pick) => {
+    const modeById = new Map<string, number>(locked.map((c) => [c.id, FULL]));
+    unlocked.forEach((c, i) => modeById.set(c.id, pick.modes[i]));
+    const kept = cards.filter((c) => modeById.get(c.id) !== CUT); // original order
+    const shortIds = kept.filter((c) => modeById.get(c.id) === SHORT).map((c) => c.id);
+    return { kept, shortIds };
   };
 
   if (best) {
-    const kept = keptFor(best.mask);
+    const { kept, shortIds } = split(best);
     const keptIds = new Set(kept.map((c) => c.id));
     const cut = cards
       .filter((c) => !keptIds.has(c.id))
@@ -140,6 +191,7 @@ export function selectCards(
     return {
       fits: true,
       kept,
+      shortIds,
       cut,
       totalSeconds: best.seconds,
       spareSeconds: budgetSeconds - best.seconds,
@@ -153,11 +205,18 @@ export function selectCards(
     budgetSeconds,
     shortest: shortest
       ? {
-          cards: keptFor(shortest.mask),
+          cards: split(shortest).kept,
+          shortIds: split(shortest).shortIds,
           totalSeconds: shortest.seconds,
           overBySeconds: shortest.seconds - budgetSeconds,
         }
       : null,
     uncoverablePoints,
   };
+}
+
+/** Mode of each card in a result, by id. */
+export function modeOf(card: Card, kept: Card[], shortIds: string[]): CardMode {
+  if (!kept.some((c) => c.id === card.id)) return 'cut';
+  return shortIds.includes(card.id) ? 'short' : 'full';
 }
