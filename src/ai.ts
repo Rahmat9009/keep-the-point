@@ -4,6 +4,12 @@ export const AI_NOTICE = "AI suggestions are sent to Google Gemini. Don't includ
 export const SHORTEN_UNAVAILABLE = 'AI unavailable. Write your own short version.';
 export const BRIDGE_UNAVAILABLE = 'AI unavailable. Write your own bridge line.';
 
+/** How long the browser waits before showing "AI unavailable" (the server gives up after 12s). */
+export const CLIENT_TIMEOUT_MS = 15_000;
+
+/** Button content while waiting for the AI: a spinner and "Thinking…". */
+export const THINKING_HTML = '<span class="spinner" aria-hidden="true"></span>Thinking…';
+
 export type AiResult = { ok: true; text: string } | { ok: false; message: string };
 
 export interface ShortenRequest {
@@ -30,7 +36,7 @@ export const requestBridge = (req: BridgeRequest) => post('/api/bridge', req, BR
 
 async function post(url: string, body: unknown, unavailable: string, fetchImpl: typeof fetch = fetch): Promise<AiResult> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15_000);
+  const timer = setTimeout(() => controller.abort(), CLIENT_TIMEOUT_MS);
   try {
     const res = await fetchImpl(url, {
       method: 'POST',

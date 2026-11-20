@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { POST as bridgePOST } from './bridge';
-import { POST as shortenPOST } from './shorten';
-import { extractText, UNAVAILABLE } from './_gemini';
+import { POST as bridgePOST } from '../api/bridge';
+import { POST as shortenPOST } from '../api/shorten';
+import { extractText, UNAVAILABLE } from '../api/_gemini';
 
 const FAKE_KEY = 'test-key-not-real-123';
 
@@ -100,8 +100,9 @@ describe('POST /api/shorten', () => {
     const forbidden = await call(shortenPOST, req(goodShorten));
     expect(forbidden.status).toBe(502);
     expect(JSON.stringify(forbidden.body)).not.toContain(FAKE_KEY);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // a rejected request is not retried
 
-    fetchMock.mockResolvedValueOnce(new Response('quota', { status: 429 }));
+    fetchMock.mockResolvedValueOnce(new Response('quota', { status: 429 })).mockResolvedValueOnce(new Response('quota', { status: 429 }));
     const busy = await call(shortenPOST, req(goodShorten));
     expect(busy.status).toBe(429);
     expect(busy.body.error).toMatch(/busy/);
@@ -109,7 +110,7 @@ describe('POST /api/shorten', () => {
     fetchMock.mockResolvedValueOnce(new Response('oops', { status: 500 })).mockResolvedValueOnce(new Response('oops', { status: 500 }));
     expect((await call(shortenPOST, req(goodShorten))).status).toBe(502);
 
-    fetchMock.mockRejectedValueOnce(new TypeError('network down'));
+    fetchMock.mockRejectedValueOnce(new TypeError('network down')).mockRejectedValueOnce(new TypeError('network down'));
     const offline = await call(shortenPOST, req(goodShorten));
     expect(offline.status).toBe(502);
     expect(offline.body.error).toMatch(/reach/);
@@ -117,43 +118,110 @@ describe('POST /api/shorten', () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ candidates: [] }), { status: 200 }));
     expect((await call(shortenPOST, req(goodShorten))).status).toBe(502);
   });
+});
 
-  it('falls back to the lighter model once when the main one is overloaded', async () => {
-    fetchMock
-      .mockResolvedValueOnce(new Response('{"error":{"code":503}}', { status: 503 }))
-      .mockResolvedValueOnce(geminiReply('Grandma baked for 30 years.'));
-    const { status, body } = await call(shortenPOST, req(goodShorten));
-    expect(status).toBe(200);
-    expect(body.text).toBe('Grandma baked for 30 years.');
-    const urls = fetchMock.mock.calls.map((c) => c[0] as string);
-    expect(urls[0]).toContain('gemini-3.8-flash:');
-    expect(urls[1]).toContain('gemini-3.5-flash-lite:');
-  });
+describe('model choice, timeouts and backup', () => {
+  /** A fetch that never answers until its signal aborts. */
+  const hang = (_url: string, init: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      init.signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    });
+  const sentModel = (i: number) => /models\/([^:]+):/.exec(fetchMock.mock.calls[i][0] as string)![1];
+  const sentThinking = (i: number) => JSON.parse((fetchMock.mock.calls[i][1] as RequestInit).body as string).generationConfig.thinkingConfig;
 
-  it('does not retry on other errors', async () => {
-    fetchMock.mockResolvedValueOnce(new Response('quota', { status: 429 }));
-    await call(shortenPOST, req(goodShorten));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('gives up after 10 seconds', async () => {
-    vi.useFakeTimers();
-    fetchMock.mockImplementation(
-      (_url: string, init: RequestInit) =>
-        new Promise((_resolve, reject) => {
-          init.signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
-        }),
-    );
-    const pending = call(shortenPOST, req(goodShorten));
-    await vi.advanceTimersByTimeAsync(9_999);
+  /** Resolve `pending` and report whether it had already settled. */
+  async function settledYet(pending: Promise<unknown>) {
     let settled = false;
     void pending.then(() => (settled = true));
     await Promise.resolve();
-    expect(settled).toBe(false);
+    await Promise.resolve();
+    return settled;
+  }
+
+  it('uses gemini-3.5-flash-lite first, with thinking at its minimum', async () => {
+    fetchMock.mockResolvedValue(geminiReply('Short.'));
+    await call(shortenPOST, req(goodShorten));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(sentModel(0)).toBe('gemini-3.5-flash-lite');
+    expect(sentThinking(0)).toEqual({ thinkingLevel: 'minimal' });
+  });
+
+  it('GEMINI_MODEL overrides the first model, with that model\'s lowest thinking level', async () => {
+    vi.stubEnv('GEMINI_MODEL', 'gemini-3.8-flash');
+    fetchMock.mockResolvedValue(geminiReply('Short.'));
+    await call(shortenPOST, req(goodShorten));
+    expect(sentModel(0)).toBe('gemini-3.8-flash');
+    expect(sentThinking(0)).toEqual({ thinkingLevel: 'low' }); // 3.8 does not accept "minimal"
+  });
+
+  it.each([429, 500, 503])('tries the backup (gemini-3.6-flash, minimal thinking) after a %i', async (code) => {
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: code })).mockResolvedValueOnce(geminiReply('From the backup.'));
+    const { status, body } = await call(shortenPOST, req(goodShorten));
+    expect(status).toBe(200);
+    expect(body.text).toBe('From the backup.');
+    expect(sentModel(1)).toBe('gemini-3.6-flash');
+    expect(sentThinking(1)).toEqual({ thinkingLevel: 'minimal' });
+  });
+
+  it('tries the backup when the first model is unreachable', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('network down')).mockResolvedValueOnce(geminiReply('From the backup.'));
+    expect((await call(shortenPOST, req(goodShorten))).body.text).toBe('From the backup.');
+  });
+
+  it('gives the first model 6s, then switches to the backup', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementationOnce(hang).mockResolvedValueOnce(geminiReply('From the backup.'));
+    const pending = call(shortenPOST, req(goodShorten));
+    await vi.advanceTimersByTimeAsync(5_999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    const { status, body } = await pending;
+    expect(status).toBe(200);
+    expect(body.text).toBe('From the backup.');
+    expect(sentModel(1)).toBe('gemini-3.6-flash');
+  });
+
+  it('the whole call finishes within 12s when both models hang', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(hang);
+    const pending = call(shortenPOST, req(goodShorten));
+    await vi.advanceTimersByTimeAsync(11_999);
+    expect(await settledYet(pending)).toBe(false);
     await vi.advanceTimersByTimeAsync(1);
     const { status, body } = await pending;
     expect(status).toBe(504);
     expect(body.error).toMatch(/too long/);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('the backup only gets the time that is left of the 12s', async () => {
+    vi.useFakeTimers();
+    // First model takes 4s to say it is overloaded; the backup then hangs.
+    fetchMock
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => setTimeout(() => resolve(new Response('{}', { status: 503 })), 4_000)))
+      .mockImplementationOnce(hang);
+    const pending = call(shortenPOST, req(goodShorten));
+    await vi.advanceTimersByTimeAsync(11_999);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(await settledYet(pending)).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await pending).status).toBe(504);
+  });
+
+  it('does not retry when the first model answers in time', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((resolve) => setTimeout(() => resolve(geminiReply('Just in time.')), 5_900)));
+    const pending = call(shortenPOST, req(goodShorten));
+    await vi.advanceTimersByTimeAsync(5_900);
+    expect((await pending).body.text).toBe('Just in time.');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('bridge uses the same fallback', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 503 })).mockResolvedValueOnce(geminiReply('So here is how I tested it.'));
+    const { status, body } = await call(bridgePOST, req(goodBridge));
+    expect(status).toBe(200);
+    expect(body.text).toBe('So here is how I tested it.');
   });
 });
 

@@ -6,11 +6,30 @@
  * It is never logged, echoed back, or sent anywhere except Google's API.
  */
 
-/** Current stable Flash model on the free tier. Override with GEMINI_MODEL if Google retires it. */
-export const DEFAULT_MODEL = 'gemini-3.8-flash';
-/** Faster, lighter free-tier model tried once when the main model is overloaded. */
-export const FALLBACK_MODEL = 'gemini-3.5-flash-lite';
-export const TIMEOUT_MS = 10_000;
+/**
+ * Models, chosen by timing real calls with our prompts (Nov 2026):
+ * gemini-3.5-flash-lite answered in about 1s with good results; gemini-3.6-flash took 20-30s;
+ * gemini-3.8-flash was mostly overloaded (503). Override the first with GEMINI_MODEL.
+ */
+export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
+/** Tried with the time left if the first model times out or returns 429/500/503. */
+export const BACKUP_MODEL = 'gemini-3.6-flash';
+
+/**
+ * Lowest thinking level each model accepts (Gemini docs: thinking can't be fully turned off on
+ * Gemini 3 Flash models; "minimal" is near-off, and gemini-3.8-flash only goes down to "low").
+ */
+const THINKING_LEVEL: Record<string, string> = {
+  'gemini-3.5-flash-lite': 'minimal',
+  'gemini-3.6-flash': 'minimal',
+  'gemini-3.8-flash': 'low',
+};
+export const thinkingLevelFor = (model: string) => THINKING_LEVEL[model] ?? 'low';
+
+/** Time the first model gets before we try the backup. */
+export const FIRST_TIMEOUT_MS = 6_000;
+/** The whole server call (both attempts) finishes within this. */
+export const TOTAL_TIMEOUT_MS = 12_000;
 export const MAX_TEXT = 1000;
 const MAX_BODY_BYTES = 20_000;
 const PLACEHOLDER_KEY = 'paste-your-key-here';
@@ -75,7 +94,10 @@ export function stringList(v: unknown, name: string, maxItems: number, maxLen: n
 /* ---------- Gemini call ---------- */
 
 export interface GeminiOptions {
-  timeoutMs?: number;
+  /** Time the first model gets (default 6s). */
+  firstTimeoutMs?: number;
+  /** Time for the whole call, both attempts (default 12s). */
+  totalTimeoutMs?: number;
   fetchImpl?: typeof fetch;
 }
 
@@ -84,60 +106,84 @@ function apiKey(): string | null {
   return key && key !== PLACEHOLDER_KEY ? key : null;
 }
 
+type Attempt =
+  | { kind: 'response'; status: number; data: unknown }
+  | { kind: 'timeout' }
+  | { kind: 'network' };
+
+/** One generateContent call that gives up after `budgetMs`. */
+async function attempt(model: string, prompt: string, key: string, budgetMs: number, doFetch: typeof fetch): Promise<Attempt> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), budgetMs);
+  try {
+    const res = await doFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          responseJsonSchema: {
+            type: 'object',
+            properties: { text: { type: 'string' } },
+            required: ['text'],
+          },
+          temperature: 0.4,
+          thinkingConfig: { thinkingLevel: thinkingLevelFor(model) },
+        },
+      }),
+      signal: controller.signal,
+    });
+    const data: unknown = res.ok ? await res.json().catch(() => null) : null;
+    if (controller.signal.aborted) return { kind: 'timeout' };
+    return { kind: 'response', status: res.status, data };
+  } catch {
+    // Never log: errors could include request details.
+    return controller.signal.aborted ? { kind: 'timeout' } : { kind: 'network' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Worth trying the backup model: the first one was slow, unreachable, rate-limited or overloaded. */
+const shouldRetry = (a: Attempt) =>
+  a.kind !== 'response' || a.status === 429 || a.status === 500 || a.status === 503;
+
 /**
  * Ask Gemini for JSON shaped like { text: string }. Returns a friendly ApiResult either way.
+ *
+ * The first model gets about 6s. If it times out or returns 429/500/503, the backup model
+ * gets whatever is left of the 12s total.
  */
 export async function askGemini(prompt: string, opts: GeminiOptions = {}): Promise<ApiResult> {
   const key = apiKey();
   if (!key) return { status: 503, body: { error: UNAVAILABLE } };
 
-  const model = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
-  // If the main model is overloaded (500/503), try the lighter one once, within the same time limit.
-  const models = model === FALLBACK_MODEL ? [model] : [model, FALLBACK_MODEL];
+  const first = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
   const doFetch = opts.fetchImpl ?? fetch;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? TIMEOUT_MS);
+  const totalMs = opts.totalTimeoutMs ?? TOTAL_TIMEOUT_MS;
+  const firstMs = Math.min(opts.firstTimeoutMs ?? FIRST_TIMEOUT_MS, totalMs);
+  const started = Date.now();
 
-  try {
-    let res!: Response;
-    for (const m of models) {
-      res = await doFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-goog-api-key': key },
-        body: JSON.stringify({
-          contents: [{ role: 'user', parts: [{ text: prompt }] }],
-          generationConfig: {
-            responseMimeType: 'application/json',
-            responseJsonSchema: {
-              type: 'object',
-              properties: { text: { type: 'string' } },
-              required: ['text'],
-            },
-            temperature: 0.4,
-            thinkingConfig: { thinkingLevel: m === FALLBACK_MODEL ? 'minimal' : 'low' },
-          },
-        }),
-        signal: controller.signal,
-      });
-      if (res.status !== 500 && res.status !== 503) break;
-    }
-
-    if (res.status === 429) return { status: 429, body: { error: 'The AI is busy right now (free-tier limit). Try again in a minute.' } };
-    if (res.status === 400 || res.status === 401 || res.status === 403) {
-      return { status: 502, body: { error: 'The AI service rejected the request. Check the API key.' } };
-    }
-    if (!res.ok) return { status: 502, body: { error: 'The AI service had a problem. Try again later.' } };
-
-    const text = extractText(await res.json());
-    if (text === null) return { status: 502, body: { error: 'The AI sent back something unexpected. Try again.' } };
-    return { status: 200, body: { text } };
-  } catch (err) {
-    if (controller.signal.aborted) return { status: 504, body: { error: 'The AI took too long to answer (over 10s).' } };
-    void err; // never log: errors could include request details
-    return { status: 502, body: { error: "Couldn't reach the AI service." } };
-  } finally {
-    clearTimeout(timer);
+  let result = await attempt(first, prompt, key, firstMs, doFetch);
+  const leftMs = totalMs - (Date.now() - started);
+  if (shouldRetry(result) && BACKUP_MODEL !== first && leftMs >= 500) {
+    result = await attempt(BACKUP_MODEL, prompt, key, leftMs, doFetch);
   }
+  return toApiResult(result);
+}
+
+function toApiResult(a: Attempt): ApiResult {
+  if (a.kind === 'timeout') return { status: 504, body: { error: 'The AI took too long to answer. Try again in a moment.' } };
+  if (a.kind === 'network') return { status: 502, body: { error: "Couldn't reach the AI service." } };
+  if (a.status === 429) return { status: 429, body: { error: 'The AI is busy right now (free-tier limit). Try again in a minute.' } };
+  if (a.status === 400 || a.status === 401 || a.status === 403) {
+    return { status: 502, body: { error: 'The AI service rejected the request. Check the API key.' } };
+  }
+  if (a.status < 200 || a.status >= 300) return { status: 502, body: { error: 'The AI service had a problem. Try again later.' } };
+  const text = extractText(a.data);
+  if (text === null) return { status: 502, body: { error: 'The AI sent back something unexpected. Try again.' } };
+  return { status: 200, body: { text } };
 }
 
 /** Pull `text` out of a generateContent response whose part is JSON like {"text": "..."}. */

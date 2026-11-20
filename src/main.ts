@@ -5,7 +5,7 @@ import { capybaraSvg } from './capybara';
 import { openCueView, printSheetHtml, type CueView } from './cueView';
 import { openRehearsal } from './rehearsalView';
 import { MAX_CARDS, shortenedLabel, spokenCard } from './select';
-import { AI_NOTICE, requestBridge, requestShorten, shortenTarget } from './ai';
+import { AI_NOTICE, THINKING_HTML, requestBridge, requestShorten, shortenTarget } from './ai';
 import { clearState, loadState, saveState, type SavedState } from './storage';
 import { cardTimeLabel, summarize } from './summary';
 import { addPoint, emptyTalk, moveCard, removePoint } from './talk';
@@ -430,7 +430,7 @@ function shortSectionHtml(card: Card, n: number): string {
   const draft = drafts.get(card.id);
   const noText = !card.text.trim();
   const aiButton = (label: string) =>
-    `<button type="button" data-action="shorten" ${noText || draft?.loading ? 'disabled' : ''} ${noText ? 'title="Write the card first"' : ''}>${draft?.loading ? '✨ Shortening…' : label}</button>`;
+    `<button type="button" data-action="shorten" ${noText || draft?.loading ? 'disabled' : ''} ${draft?.loading ? 'aria-busy="true"' : ''} ${noText ? 'title="Write the card first"' : ''}>${draft?.loading ? THINKING_HTML : label}</button>`;
   const id = esc(card.id);
 
   let html = '';

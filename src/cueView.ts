@@ -1,4 +1,4 @@
-import { AI_NOTICE, type AiResult, type BridgeRequest } from './ai';
+import { AI_NOTICE, THINKING_HTML, type AiResult, type BridgeRequest } from './ai';
 import { capybaraSvg } from './capybara';
 import { buildCueItems, cutLabel, gapKey, type CutMarker } from './cues';
 import { estimateSeconds } from './outline';
@@ -101,7 +101,7 @@ function bridgeToolsHtml(key: string, text: string, ui?: BridgeUi): string {
   const loading = ui?.loading.has(key) ?? false;
   const error = ui?.errors.get(key);
   const open = !!text.trim() || (ui?.editing.has(key) ?? false);
-  const aiButton = `<button type="button" data-bridge-ai="${k}" ${loading ? 'disabled' : ''}>${loading ? '✨ Thinking…' : open ? '✨ Suggest again' : '✨ Suggest bridge'}</button>`;
+  const aiButton = `<button type="button" data-bridge-ai="${k}" ${loading ? 'disabled aria-busy="true"' : ''}>${loading ? THINKING_HTML : open ? '✨ Suggest again' : '✨ Suggest bridge'}</button>`;
   return `
     <div class="cue-bridge-tools" data-gap="${k}">
       ${error ? `<p class="error" role="alert">${esc(error)}</p>` : ''}

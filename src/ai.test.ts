@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { shortenTarget } from './ai';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { requestShorten, SHORTEN_UNAVAILABLE, shortenTarget } from './ai';
 import { cueSheetHtml } from './cueView';
 import { sampleTalk } from './sample';
 import { parseSavedState } from './storage';
@@ -56,5 +56,31 @@ describe('cue sheet with short versions and bridges', () => {
     expect(cueSheetHtml(noShort, 120, true)).toContain('✨ Suggest bridge');
     expect(cueSheetHtml(noShort, 120, true)).toContain('sent to Google Gemini');
     expect(cueSheetHtml(noShort, 120, false)).not.toContain('Suggest bridge');
+  });
+});
+
+describe('browser wait for the AI', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+  const req = { text: 'Hook', targetSeconds: 6, title: 'T', requiredPoints: [] };
+
+  it('waits up to 15s, then shows "AI unavailable"', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', (_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => init.signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))),
+    );
+    let done: unknown = null;
+    void requestShorten(req).then((r) => (done = r));
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(done).toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(done).toEqual({ ok: false, message: SHORTEN_UNAVAILABLE });
+  });
+
+  it('shows the server reason after "AI unavailable" (e.g. a server timeout)', async () => {
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: 'The AI took too long to answer. Try again in a moment.' }), { status: 504 }));
+    expect(await requestShorten(req)).toEqual({ ok: false, message: `${SHORTEN_UNAVAILABLE} (The AI took too long to answer. Try again in a moment.)` });
   });
 });
