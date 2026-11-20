@@ -154,6 +154,21 @@ describe('model choice, timeouts and backup', () => {
     expect(sentThinking(0)).toEqual({ thinkingLevel: 'low' }); // 3.8 does not accept "minimal"
   });
 
+  it('if GEMINI_MODEL is the backup model, the default model becomes the backup', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('GEMINI_MODEL', 'gemini-3.6-flash');
+    fetchMock
+      .mockImplementationOnce((_url: string, init: RequestInit) =>
+        new Promise<Response>((_r, reject) => init.signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))),
+      )
+      .mockResolvedValueOnce(geminiReply('From flash-lite.'));
+    const pending = call(shortenPOST, req(goodShorten));
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect((await pending).body.text).toBe('From flash-lite.');
+    expect(sentModel(0)).toBe('gemini-3.6-flash');
+    expect(sentModel(1)).toBe('gemini-3.5-flash-lite');
+  });
+
   it.each([429, 500, 503])('tries the backup (gemini-3.6-flash, minimal thinking) after a %i', async (code) => {
     fetchMock.mockResolvedValueOnce(new Response('{}', { status: code })).mockResolvedValueOnce(geminiReply('From the backup.'));
     const { status, body } = await call(shortenPOST, req(goodShorten));

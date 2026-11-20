@@ -181,8 +181,10 @@ export async function askGemini(prompt: string, opts: GeminiOptions = {}): Promi
 
   let result = await tryModel(first, firstMs);
   const leftMs = totalMs - (Date.now() - started);
-  if (shouldRetry(result) && BACKUP_MODEL !== first && leftMs >= 500) {
-    result = await tryModel(BACKUP_MODEL, leftMs);
+  // If GEMINI_MODEL picks the backup model, fall back to the default instead, so there is always a second try.
+  const backup = first === BACKUP_MODEL ? DEFAULT_MODEL : BACKUP_MODEL;
+  if (shouldRetry(result) && backup !== first && leftMs >= 500) {
+    result = await tryModel(backup, leftMs);
   }
   return { ...toApiResult(result), trace };
 }
