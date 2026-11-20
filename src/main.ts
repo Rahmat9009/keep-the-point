@@ -1,6 +1,8 @@
 import './style.css';
 import { cardsFromOutline, estimateSeconds, newCard, parseOutline } from './outline';
 import { sampleTalk } from './sample';
+import { capybaraSvg } from './capybara';
+import { openCueView, printSheetHtml, type CueView } from './cueView';
 import { openRehearsal } from './rehearsalView';
 import { MAX_CARDS } from './select';
 import { clearState, loadState, saveState, type SavedState } from './storage';
@@ -20,8 +22,9 @@ const app = document.querySelector<HTMLElement>('#app')!;
 app.innerHTML = `
   <header class="top">
     <p class="eyebrow">Keep the Point</p>
+    <p class="tagline">Cut your talk to time — keep every point that matters.</p>
     <label class="visually-hidden" for="title">Talk title</label>
-    <input id="title" class="title" type="text" autocomplete="off" />
+    <textarea id="title" class="title" rows="1" autocomplete="off" spellcheck="true"></textarea>
   </header>
 
   <div class="layout">
@@ -36,6 +39,7 @@ app.innerHTML = `
         <div class="rehearse">
           <button id="rehearse-full" type="button">▶ Rehearse full talk</button>
           <button id="rehearse-short" type="button" aria-describedby="rehearse-note">▶ Rehearse shortened talk</button>
+          <button id="open-cues" type="button" aria-describedby="rehearse-note">Open cue cards</button>
         </div>
         <p id="rehearse-note" class="hint rehearse-note"></p>
       </div>
@@ -83,10 +87,18 @@ app.innerHTML = `
       </section>
     </div>
   </div>
+
+  <footer class="app-footer">${capybaraSvg('capy capy--tiny')}<span>Keep the Point · timed by a very patient capybara</span></footer>
 `;
 
+/** Hidden on screen; the only thing shown when printing. */
+const printSheet = document.createElement('div');
+printSheet.className = 'print-sheet';
+printSheet.setAttribute('aria-hidden', 'true');
+document.body.append(printSheet);
+
 const $ = <T extends HTMLElement>(sel: string) => app.querySelector<T>(sel)!;
-const titleInput = $<HTMLInputElement>('#title');
+const titleInput = $<HTMLTextAreaElement>('#title');
 const limitInput = $<HTMLInputElement>('#limit');
 const limitError = $('#limit-error');
 const summaryEl = $('#summary');
@@ -106,6 +118,7 @@ const cardCount = $('#card-count');
 const rehearseFull = $<HTMLButtonElement>('#rehearse-full');
 const rehearseShort = $<HTMLButtonElement>('#rehearse-short');
 const rehearseNote = $('#rehearse-note');
+const openCuesBtn = $<HTMLButtonElement>('#open-cues');
 
 /** Cards the selection keeps right now (null when there's no shortened talk to rehearse). */
 let shortenedCards: Card[] | null = null;
@@ -126,9 +139,22 @@ function cardById(id: string): Card | undefined {
 /* ---------- Header + time limit ---------- */
 
 titleInput.addEventListener('input', () => {
+  // A title is one line: newlines from pasting become spaces.
+  if (/[\r\n]/.test(titleInput.value)) titleInput.value = titleInput.value.replace(/\s*[\r\n]+\s*/g, ' ');
   state.talk.title = titleInput.value;
+  fitTitle();
   changed(false);
 });
+titleInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') e.preventDefault();
+});
+window.addEventListener('resize', fitTitle);
+
+/** Grow the title box to fit its text so long titles wrap instead of being cut off. */
+function fitTitle() {
+  titleInput.style.height = 'auto';
+  titleInput.style.height = `${titleInput.scrollHeight}px`;
+}
 
 limitInput.addEventListener('input', () => {
   state.limit = limitInput.value;
@@ -309,6 +335,32 @@ function startRehearsal(label: string, cards: Card[], trigger: HTMLButtonElement
   });
 }
 
+/* ---------- Cue cards ---------- */
+
+let cueView: CueView | null = null;
+
+openCuesBtn.addEventListener('click', () => {
+  cueView = openCueView({
+    getState: () => ({ talk: state.talk, limitSeconds: parseTime(state.limit) }),
+    keepCard(id) {
+      const card = cardById(id);
+      if (!card) return;
+      card.locked = true;
+      changed(true);
+    },
+    unlockCard(id) {
+      const card = cardById(id);
+      if (!card) return;
+      card.locked = false;
+      changed(true);
+    },
+    onClose() {
+      cueView = null;
+      openCuesBtn.focus();
+    },
+  });
+});
+
 rehearseFull.addEventListener('click', () => startRehearsal('Full talk', state.talk.cards, rehearseFull));
 rehearseShort.addEventListener('click', () => {
   if (shortenedCards) startRehearsal('Shortened talk', shortenedCards, rehearseShort);
@@ -318,12 +370,13 @@ function updateRehearseButtons(fits: boolean, limitValid: boolean) {
   const cards = state.talk.cards;
   rehearseFull.disabled = cards.length === 0 || !limitValid;
   rehearseShort.disabled = !fits || !shortenedCards?.length;
+  openCuesBtn.disabled = rehearseShort.disabled;
   rehearseNote.textContent =
     cards.length === 0 || !limitValid || fits
       ? ''
       : cards.length > MAX_CARDS
-        ? 'Shortened rehearsal needs 12 cards or fewer.'
-        : "Shortened rehearsal is available once the talk can fit the time limit.";
+        ? 'The shortened talk needs 12 cards or fewer.'
+        : 'Shortened rehearsal and cue cards are available once the talk can fit the time limit.';
 }
 
 /* ---------- Rendering ---------- */
@@ -331,6 +384,7 @@ function updateRehearseButtons(fits: boolean, limitValid: boolean) {
 function syncInputs() {
   titleInput.value = state.talk.title;
   limitInput.value = state.limit;
+  fitTitle();
 }
 
 function renderEditor() {
@@ -392,6 +446,8 @@ function renderEditor() {
 function renderResults() {
   const { cards, requiredPoints } = state.talk;
   const budget = parseTime(state.limit);
+  printSheet.innerHTML = printSheetHtml(state.talk, budget);
+  cueView?.refresh();
   limitError.textContent = budget === null ? 'Enter a time like 2:00' : '';
   limitInput.toggleAttribute('aria-invalid', budget === null);
   if (budget === null) {

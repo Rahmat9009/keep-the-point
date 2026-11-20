@@ -10,6 +10,7 @@ What it does so far:
 - **Live results.** The result updates as you type.
 - **Saved automatically** in your browser. **Clear** starts fresh.
 - **Rehearse.** Time yourself on the full talk or just the cards that fit. Press Space (or tap) to move to the next card, ← to re-time the previous card, Esc to cancel. At the end, compare old and new times and choose whether to save them.
+- **Cue cards.** See (and print, about 4 per A4 page) just the cards you're keeping, with a "✂ Cut here" marker wherever something was cut, so you know where to add a smooth bridge. Changed your mind? Click a marker and choose "Keep this card".
 
 ## Running it
 
