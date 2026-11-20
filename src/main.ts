@@ -1,10 +1,12 @@
 import './style.css';
 import { cardsFromOutline, estimateSeconds, newCard, parseOutline } from './outline';
 import { sampleTalk } from './sample';
-import { MAX_CARDS, selectCards } from './select';
+import { openRehearsal } from './rehearsalView';
+import { MAX_CARDS } from './select';
 import { clearState, loadState, saveState, type SavedState } from './storage';
+import { cardTimeLabel, summarize } from './summary';
 import { addPoint, emptyTalk, moveCard, removePoint } from './talk';
-import { formatTime, parseTime } from './time';
+import { parseTime } from './time';
 import type { Card } from './types';
 
 const DEFAULT_LIMIT = '2:00';
@@ -31,6 +33,11 @@ app.innerHTML = `
         </label>
         <p id="limit-error" class="error" role="alert"></p>
         <p id="summary" class="summary" aria-live="polite"></p>
+        <div class="rehearse">
+          <button id="rehearse-full" type="button">▶ Rehearse full talk</button>
+          <button id="rehearse-short" type="button" aria-describedby="rehearse-note">▶ Rehearse shortened talk</button>
+        </div>
+        <p id="rehearse-note" class="hint rehearse-note"></p>
       </div>
       <div class="details">
         <p id="too-many" class="notice" hidden></p>
@@ -96,6 +103,12 @@ const pointError = $('#point-error');
 const rowsEl = $('#rows');
 const noCards = $('#no-cards');
 const cardCount = $('#card-count');
+const rehearseFull = $<HTMLButtonElement>('#rehearse-full');
+const rehearseShort = $<HTMLButtonElement>('#rehearse-short');
+const rehearseNote = $('#rehearse-note');
+
+/** Cards the selection keeps right now (null when there's no shortened talk to rehearse). */
+let shortenedCards: Card[] | null = null;
 
 /* ---------- State changes ---------- */
 
@@ -273,6 +286,46 @@ rowsEl.addEventListener('click', (e) => {
   }
 });
 
+/* ---------- Rehearsal ---------- */
+
+function startRehearsal(label: string, cards: Card[], trigger: HTMLButtonElement) {
+  const limit = parseTime(state.limit);
+  if (limit === null || cards.length === 0) return;
+  openRehearsal({
+    label,
+    cards: structuredClone(cards),
+    talk: structuredClone(state.talk),
+    limitSeconds: limit,
+    onSave(measured) {
+      for (const card of state.talk.cards) {
+        const seconds = measured.get(card.id);
+        if (seconds === undefined) continue;
+        card.seconds = seconds;
+        card.estimated = false;
+      }
+      changed(true);
+    },
+    onClose: () => trigger.focus(),
+  });
+}
+
+rehearseFull.addEventListener('click', () => startRehearsal('Full talk', state.talk.cards, rehearseFull));
+rehearseShort.addEventListener('click', () => {
+  if (shortenedCards) startRehearsal('Shortened talk', shortenedCards, rehearseShort);
+});
+
+function updateRehearseButtons(fits: boolean, limitValid: boolean) {
+  const cards = state.talk.cards;
+  rehearseFull.disabled = cards.length === 0 || !limitValid;
+  rehearseShort.disabled = !fits || !shortenedCards?.length;
+  rehearseNote.textContent =
+    cards.length === 0 || !limitValid || fits
+      ? ''
+      : cards.length > MAX_CARDS
+        ? 'Shortened rehearsal needs 12 cards or fewer.'
+        : "Shortened rehearsal is available once the talk can fit the time limit.";
+}
+
 /* ---------- Rendering ---------- */
 
 function syncInputs() {
@@ -341,46 +394,27 @@ function renderResults() {
   const budget = parseTime(state.limit);
   limitError.textContent = budget === null ? 'Enter a time like 2:00' : '';
   limitInput.toggleAttribute('aria-invalid', budget === null);
-  if (budget === null) return; // keep showing the last valid result
+  if (budget === null) {
+    updateRehearseButtons(false, false);
+    return; // keep showing the last valid result
+  }
 
-  const fullSeconds = cards.reduce((t, c) => t + c.seconds, 0);
-  const full = timeLabel(fullSeconds, cards.some((c) => c.estimated));
+  const summary = summarize(cards, requiredPoints, budget);
+  const result = summary.result;
+  summaryEl.className = `summary ${summary.tone === 'bad' ? 'summary--bad' : summary.tone === 'quiet' ? 'summary--quiet' : ''}`;
+  summaryEl.textContent = summary.text;
+  shortenedCards = result?.fits ? result.kept : null;
+  updateRehearseButtons(!!result?.fits, true);
 
+  tooManyEl.hidden = cards.length <= MAX_CARDS;
   if (cards.length > MAX_CARDS) {
-    const extra = cards.length - MAX_CARDS;
-    summaryEl.className = 'summary summary--bad';
-    summaryEl.textContent = `${cards.length} cards is too many to check`;
-    tooManyEl.hidden = false;
-    tooManyEl.textContent = `Keep the Point can sort out up to ${MAX_CARDS} cards. Merge or delete ${plural(extra, 'card')} and your result will appear here.`;
-    resultBody.hidden = true;
-    return;
+    tooManyEl.textContent = `Keep the Point can sort out up to ${MAX_CARDS} cards. Merge or delete ${plural(cards.length - MAX_CARDS, 'card')} and your result will appear here.`;
   }
-  tooManyEl.hidden = true;
+  resultBody.hidden = result === null;
+  if (result === null) return;
 
-  if (cards.length === 0) {
-    summaryEl.className = 'summary summary--quiet';
-    summaryEl.textContent = 'Add some cards to see what fits.';
-    resultBody.hidden = true;
-    return;
-  }
-  resultBody.hidden = false;
-
-  const result = selectCards(cards, requiredPoints, budget);
-  let keptCards: Card[];
-  let reasons = new Map<string, string>();
-
-  if (result.fits) {
-    keptCards = result.kept;
-    reasons = new Map(result.cut.map((c) => [c.card.id, c.reason]));
-    summaryEl.className = 'summary';
-    summaryEl.textContent = `${full} → ${timeLabel(result.totalSeconds, keptCards.some((c) => c.estimated))} · ${result.spareSeconds}s spare`;
-  } else {
-    keptCards = result.shortest?.cards ?? [];
-    summaryEl.className = 'summary summary--bad';
-    summaryEl.textContent = result.shortest
-      ? `${full} → can't fit ${formatTime(budget)} · shortest valid talk is ${timeLabel(result.shortest.totalSeconds, keptCards.some((c) => c.estimated))} (${result.shortest.overBySeconds}s over)`
-      : `Can't build a valid talk: no card covers ${result.uncoverablePoints.join(', ')}`;
-  }
+  const keptCards = summary.keptCards;
+  const reasons = new Map(result.fits ? result.cut.map((c) => [c.card.id, c.reason]) : []);
 
   const keptIds = new Set(keptCards.map((c) => c.id));
   resultCards.innerHTML = cards
@@ -394,7 +428,7 @@ function renderResults() {
         <li class="card ${kept ? '' : 'card--cut'}">
           <div class="card__main">
             <span class="card__text">${esc(card.text) || '<em>(empty card)</em>'}</span>
-            <span class="card__time">${card.estimated ? '~' : ''}${card.seconds}s</span>
+            <span class="card__time">${cardTimeLabel(card)}</span>
           </div>
           ${meta ? `<div class="card__meta">${esc(meta)}</div>` : ''}
           ${reason ? `<div class="card__reason">${esc(reason)}</div>` : ''}
@@ -413,10 +447,6 @@ function renderResults() {
 }
 
 /* ---------- Helpers ---------- */
-
-function timeLabel(seconds: number, estimated: boolean): string {
-  return `${estimated ? '~' : ''}${formatTime(seconds)}`;
-}
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;

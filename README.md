@@ -9,6 +9,7 @@ What it does so far:
 - **Estimated times.** New cards get a guess from their word count (150 words a minute, at least 3 seconds), shown as `~12s` until you type a real time.
 - **Live results.** The result updates as you type.
 - **Saved automatically** in your browser. **Clear** starts fresh.
+- **Rehearse.** Time yourself on the full talk or just the cards that fit. Press Space (or tap) to move to the next card, ← to re-time the previous card, Esc to cancel. At the end, compare old and new times and choose whether to save them.
 
 ## Running it
 
