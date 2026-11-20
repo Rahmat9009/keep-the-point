@@ -10,6 +10,8 @@ export interface Card {
   locked: boolean;
   /** 1-5 for optional cards (5 = most important). Cards that only exist to cover a required point may leave it out. */
   priority?: number;
+  /** True while `seconds` is a word-count guess rather than a number the student entered. */
+  estimated?: boolean;
 }
 
 /** A talk: cards in speaking order plus the points it must cover. */

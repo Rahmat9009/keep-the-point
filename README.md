@@ -2,7 +2,13 @@
 
 A web app for students whose presentation runs too long. You give it your talk as cards, the points you must cover, and your time limit, and it tells you what to cut.
 
-Step 1 (this version): the selection logic, tests, and one screen showing a sample science-fair talk.
+What it does so far:
+
+- **Your own talk.** Paste an outline (one card per line) and click **Make cards**, or start from the sample science-fair talk.
+- **Edit cards.** Change the text and seconds, tag the required points each card covers, lock cards you must keep, set priority 1-5, reorder, add and delete. Up to 12 cards.
+- **Estimated times.** New cards get a guess from their word count (150 words a minute, at least 3 seconds), shown as `~12s` until you type a real time.
+- **Live results.** The result updates as you type.
+- **Saved automatically** in your browser. **Clear** starts fresh.
 
 ## Running it
 
