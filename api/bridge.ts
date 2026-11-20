@@ -41,7 +41,7 @@ export function bridgePrompt(input: BridgeInput): string {
 export async function bridge(body: unknown, opts?: GeminiOptions): Promise<ApiResult> {
   const result = await askGemini(bridgePrompt(parseBridgeInput(body)), opts);
   if ('text' in result.body && countWords(result.body.text) > MAX_BRIDGE_WORDS) {
-    return { status: 502, body: { error: 'The suggestion came back too long. Try again.' } };
+    return { status: 502, body: { error: 'The suggestion came back too long. Try again.' }, trace: result.trace };
   }
   return result;
 }

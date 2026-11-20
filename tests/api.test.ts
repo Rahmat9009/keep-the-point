@@ -217,6 +217,14 @@ describe('model choice, timeouts and backup', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('reports which models were tried in an x-ai-trace header (no secrets)', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 503 })).mockResolvedValueOnce(geminiReply('Short.'));
+    const res = await shortenPOST(req(goodShorten));
+    const trace = res.headers.get('x-ai-trace')!;
+    expect(trace).toMatch(/^gemini-3\.5-flash-lite 503 \d+ms, gemini-3\.6-flash 200 \d+ms$/);
+    expect(trace).not.toContain(FAKE_KEY);
+  });
+
   it('bridge uses the same fallback', async () => {
     fetchMock.mockResolvedValueOnce(new Response('{}', { status: 503 })).mockResolvedValueOnce(geminiReply('So here is how I tested it.'));
     const { status, body } = await call(bridgePOST, req(goodBridge));

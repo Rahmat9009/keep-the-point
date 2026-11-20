@@ -39,6 +39,8 @@ export const UNAVAILABLE = 'AI unavailable. Write your own short version.';
 export interface ApiResult {
   status: number;
   body: { text: string } | { error: string };
+  /** Which models were tried, with outcome and time, e.g. "gemini-3.5-flash-lite 200 900ms". No secrets. */
+  trace?: string[];
 }
 
 export class InputError extends Error {}
@@ -46,7 +48,11 @@ export class InputError extends Error {}
 export function json(result: ApiResult): Response {
   return new Response(JSON.stringify(result.body), {
     status: result.status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },
+    headers: {
+      'content-type': 'application/json; charset=utf-8',
+      'cache-control': 'no-store',
+      ...(result.trace?.length ? { 'x-ai-trace': result.trace.join(', ') } : {}),
+    },
   });
 }
 
@@ -165,12 +171,20 @@ export async function askGemini(prompt: string, opts: GeminiOptions = {}): Promi
   const firstMs = Math.min(opts.firstTimeoutMs ?? FIRST_TIMEOUT_MS, totalMs);
   const started = Date.now();
 
-  let result = await attempt(first, prompt, key, firstMs, doFetch);
+  const trace: string[] = [];
+  const tryModel = async (model: string, budgetMs: number) => {
+    const t0 = Date.now();
+    const a = await attempt(model, prompt, key, budgetMs, doFetch);
+    trace.push(`${model} ${a.kind === 'response' ? a.status : a.kind} ${Date.now() - t0}ms`);
+    return a;
+  };
+
+  let result = await tryModel(first, firstMs);
   const leftMs = totalMs - (Date.now() - started);
   if (shouldRetry(result) && BACKUP_MODEL !== first && leftMs >= 500) {
-    result = await attempt(BACKUP_MODEL, prompt, key, leftMs, doFetch);
+    result = await tryModel(BACKUP_MODEL, leftMs);
   }
-  return toApiResult(result);
+  return { ...toApiResult(result), trace };
 }
 
 function toApiResult(a: Attempt): ApiResult {
