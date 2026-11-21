@@ -1,6 +1,6 @@
 import './style.css';
 import { cardTitle, cardsFromOutline, countWords, estimateSeconds, newCard, parseOutline } from './outline';
-import { sampleTalk, upgradeOldSample } from './sample';
+import { SAMPLE_LIMIT, sampleTalk, upgradeOldSample } from './sample';
 import { capybaraSvg } from './capybara';
 import { openCueView, printSheetHtml, type CueView } from './cueView';
 import { openRehearsal } from './rehearsalView';
@@ -9,21 +9,46 @@ import { AI_NOTICE, THINKING_HTML, requestBridge, requestShorten, shortenTarget 
 import { clearState, loadState, saveState, type SavedState } from './storage';
 import { cardTimeLabel, summarize } from './summary';
 import { addPoint, emptyTalk, moveCard, removePoint } from './talk';
-import { parseTime } from './time';
+import { formatTime, parseTime } from './time';
 import type { Card } from './types';
 
 const DEFAULT_LIMIT = '2:00';
 const MAX_SECONDS = 3600;
 
-let state: SavedState = upgradeOldSample(loadState()) ?? { talk: structuredClone(sampleTalk), limit: DEFAULT_LIMIT };
+const savedState = upgradeOldSample(loadState());
+let state: SavedState = savedState ?? { talk: structuredClone(sampleTalk), limit: SAMPLE_LIMIT };
+
+/** Slider range: 0:30 up to the full talk length, in 5-second steps. */
+const SLIDER_MIN = 30;
+const SLIDER_STEP = 5;
+const HINT_KEY = 'keep-the-point:slider-hint-done';
+function hintDone(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(HINT_KEY) === '1';
+  } catch {
+    return true;
+  }
+}
+function markHintDone() {
+  try {
+    globalThis.localStorage?.setItem(HINT_KEY, '1');
+  } catch {
+    /* ignore */
+  }
+}
 
 /* ---------- Static layout ---------- */
 
 const app = document.querySelector<HTMLElement>('#app')!;
 app.innerHTML = `
   <header class="top">
-    <p class="eyebrow">Keep the Point</p>
+    <h1 class="brand">Keep the Point</h1>
     <p class="tagline">Cut your talk to time — keep every point that matters.</p>
+    <p class="how" aria-label="How it works">
+      <span><b aria-hidden="true">①</b> Paste your talk</span>
+      <span><b aria-hidden="true">②</b> Set your time</span>
+      <span><b aria-hidden="true">③</b> Get cue cards that fit</span>
+    </p>
     <label class="visually-hidden" for="title">Talk title</label>
     <textarea id="title" class="title" rows="1" autocomplete="off" spellcheck="true"></textarea>
   </header>
@@ -31,10 +56,12 @@ app.innerHTML = `
   <div class="layout">
     <aside class="side" aria-label="Results">
       <div class="status">
-        <label class="limit">
-          Time limit
+        <div class="limit">
+          <label for="limit">Time limit</label>
           <input id="limit" type="text" inputmode="numeric" placeholder="mm:ss" aria-describedby="limit-error" />
-        </label>
+          <span id="slider-hint" class="slider-hint" ${hintDone() ? 'hidden' : ''}>Try it: drag to cut the talk</span>
+        </div>
+        <input id="limit-slider" class="slider" type="range" min="${SLIDER_MIN}" step="${SLIDER_STEP}" aria-label="Time limit slider" />
         <p id="limit-error" class="error" role="alert"></p>
         <p id="summary" class="summary" aria-live="polite"></p>
         <div class="rehearse">
@@ -103,6 +130,8 @@ const $ = <T extends HTMLElement>(sel: string) => app.querySelector<T>(sel)!;
 const titleInput = $<HTMLTextAreaElement>('#title');
 const limitInput = $<HTMLInputElement>('#limit');
 const limitError = $('#limit-error');
+const limitSlider = $<HTMLInputElement>('#limit-slider');
+const sliderHint = $('#slider-hint');
 const summaryEl = $('#summary');
 const tooManyEl = $('#too-many');
 const resultBody = $('#result-body');
@@ -177,6 +206,26 @@ limitInput.addEventListener('input', () => {
   changed(false);
 });
 
+limitSlider.addEventListener('input', () => {
+  state.limit = formatTime(Number(limitSlider.value));
+  limitInput.value = state.limit;
+  if (!sliderHint.hidden) {
+    sliderHint.hidden = true;
+    markHintDone();
+  }
+  changed(false);
+});
+
+/** Keep the slider's range and position in step with the cards and the typed limit. */
+function syncSlider(budget: number | null) {
+  const full = state.talk.cards.reduce((t, c) => t + c.seconds, 0);
+  const max = SLIDER_MIN + Math.max(SLIDER_STEP, Math.ceil((full - SLIDER_MIN) / SLIDER_STEP) * SLIDER_STEP);
+  limitSlider.max = String(max);
+  limitSlider.disabled = state.talk.cards.length === 0;
+  if (budget !== null) limitSlider.value = String(Math.min(max, Math.max(SLIDER_MIN, budget)));
+  limitSlider.setAttribute('aria-valuetext', budget === null ? 'No valid limit' : formatTime(budget));
+}
+
 /* ---------- Outline / sample / clear ---------- */
 
 $('#make-cards').addEventListener('click', () => {
@@ -198,6 +247,7 @@ $('#make-cards').addEventListener('click', () => {
 $('#load-sample').addEventListener('click', () => {
   if (state.talk.cards.length > 0 && !confirm('Replace your talk with the sample science-fair talk?')) return;
   state.talk = structuredClone(sampleTalk);
+  state.limit = SAMPLE_LIMIT;
   syncInputs();
   changed(true);
 });
@@ -654,6 +704,7 @@ function renderResults() {
   cueView?.refresh();
   limitError.textContent = budget === null ? 'Enter a time like 2:00' : '';
   limitInput.toggleAttribute('aria-invalid', budget === null);
+  syncSlider(budget);
   if (budget === null) {
     updateRehearseButtons(false, false);
     return; // keep showing the last valid result
@@ -662,7 +713,11 @@ function renderResults() {
   const summary = summarize(cards, requiredPoints, budget);
   const result = summary.result;
   summaryEl.className = `summary ${summary.tone === 'bad' ? 'summary--bad' : summary.tone === 'quiet' ? 'summary--quiet' : ''}`;
-  summaryEl.textContent = summary.text;
+  if (summary.headline && summary.chips) {
+    summaryEl.innerHTML = `<span class="summary__head">${esc(summary.headline)}</span><span class="summary__chips">${summary.chips.map((c) => `<span class="summary__chip">${esc(c)}</span>`).join('')}</span>`;
+  } else {
+    summaryEl.textContent = summary.text;
+  }
   shortenedCards = result?.fits ? result.kept : null;
   currentShortIds = summary.shortIds;
   updateRehearseButtons(!!result?.fits, true);

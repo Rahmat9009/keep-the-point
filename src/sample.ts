@@ -81,6 +81,12 @@ export const sampleTalk: Talk = {
   ],
 };
 
+/**
+ * Time limit the sample opens with: 2:38 → 1:42, with the bakery story shortened and
+ * "Setup details" cut, so the first view shows both kinds of trimming.
+ */
+export const SAMPLE_LIMIT = '1:45';
+
 /** Card labels of the earlier sample, which had no spoken text. */
 const OLD_SAMPLE_LABELS = ['Hook', 'Research question', "Grandma's bakery story", 'Method', 'Setup details', 'Results', 'Graph explanation', 'Conclusion'];
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { sampleTalk } from './sample';
+import { SAMPLE_LIMIT, sampleTalk } from './sample';
 import { selectCards, shortenedLabel, spokenCard, type FitResult, type NoFitResult } from './select';
+import { summarize } from './summary';
 import { formatTime, parseTime } from './time';
 import type { Card } from './types';
 
@@ -175,5 +176,18 @@ describe('parseTime', () => {
     expect(parseTime('90')).toBe(90);
     expect(parseTime('1:75')).toBeNull();
     expect(parseTime('abc')).toBeNull();
+  });
+});
+
+describe('sample default limit', () => {
+  it('opens at 1:45 with exactly one card shortened and at least one cut', () => {
+    const budget = parseTime(SAMPLE_LIMIT)!;
+    expect(budget).toBe(105);
+    const s = summarize(sampleTalk.cards, requiredPoints, budget);
+    const result = s.result as FitResult;
+    expect(result.shortIds).toEqual(['3']);
+    expect(result.cut.map((c) => c.card.title)).toEqual(['Setup details']);
+    expect(s.headline).toBe('2:38 → 1:42');
+    expect(s.chips).toEqual(['3s spare', '1 shortened', '1 cut']);
   });
 });
