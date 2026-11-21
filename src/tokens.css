@@ -1,0 +1,95 @@
+/*
+ * Keep the Point design tokens: "Highlighter notebook" (design study B).
+ * Every colour, font, size, space and radius in the app comes from here.
+ * Text and background pairs meet WCAG AA (contrast ratio noted where it matters).
+ */
+:root {
+  /* Paper and ink */
+  --paper: #ffffff;           /* page background */
+  --paper-2: #f6f8fc;         /* open card, panels */
+  --paper-3: #eef1f7;         /* pills, slider track */
+  --dot: #d3d9e4;             /* dot grid and hairlines */
+  --ink: #1c2541;             /* body text: 15.1:1 on paper */
+  --muted: #4a5370;           /* secondary text: 7.6:1 on paper */
+  --line: #b8c0d2;            /* input borders */
+
+  /* Highlighters (marks, not text colours) */
+  --yellow: #ffe45c;          /* said, short version, kept: ink on it 11.9:1 */
+  --pink: #ff8fb1;            /* cut: ink on it 7.1:1 */
+  --pink-soft: #ffd0de;       /* cut chip */
+  --mint: #b7ecd6;            /* spare-time chip */
+  --hl-ink: #1c2541;          /* text sitting on a highlighter, in both themes */
+
+  /* Pens (text colours) */
+  --pink-ink: #b0124e;        /* cut notes and errors: 6.9:1 on paper */
+  --blue: #2246a8;            /* links, bridge lines: 8.4:1 on paper */
+  --green: #157347;           /* covered tick: 5.9:1 on paper */
+  --focus: #2246a8;
+
+  /* Type */
+  --font-head: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Atkinson Hyperlegible Next', 'Atkinson Hyperlegible', ui-sans-serif, system-ui, sans-serif;
+  --text-xs: 0.8rem;
+  --text-sm: 0.9rem;
+  --text-md: 1.0625rem;       /* 17px body */
+  --text-lg: 1.35rem;         /* card titles */
+  --text-xl: 1.9rem;          /* section headings */
+  --text-brand: clamp(2.15rem, 6vw, 4rem);
+  --text-hero: clamp(2.6rem, 8vw, 5.6rem);
+  --leading-body: 1.6;
+  --leading-tight: 1.1;
+
+  /* Space (4px steps) */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+
+  /* Layout */
+  --gutter: 96px;             /* card number column */
+  --main: 680px;              /* reading column */
+  --margin-col: 260px;        /* margin notes */
+  --col-gap: 28px;
+  --page-pad: 32px;
+
+  /* Radii */
+  --r-sm: 4px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-pill: 999px;
+
+  /* Lines and depth */
+  --hairline: 1.5px solid var(--dot);
+  --shadow-card: 0 1px 2px rgb(28 37 65 / 0.15), 0 8px 20px -10px rgb(28 37 65 / 0.3);
+  --focus-ring: 3px solid var(--focus);
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --t-fast: 150ms;
+  --t-mark: 250ms;
+
+  color-scheme: light;
+}
+
+/* Dark: a navy notebook. Highlighters stay bright; text on them stays dark (--hl-ink). */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #151a2c;
+    --paper-2: #1d2440;
+    --paper-3: #262e4f;
+    --dot: #2d3656;
+    --ink: #eef1f8;           /* 15.4:1 on paper */
+    --muted: #aeb6cf;         /* 8.6:1 on paper */
+    --line: #4a5478;
+    --pink-ink: #ff9fbf;      /* 8.6:1 on paper */
+    --blue: #a9bfff;          /* 9.6:1 on paper */
+    --green: #7fdcae;
+    --focus: #a9bfff;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 20px -10px rgb(0 0 0 / 0.6);
+    color-scheme: dark;
+  }
+}

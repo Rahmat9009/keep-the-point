@@ -1,3 +1,4 @@
+import './tokens.css';
 import './style.css';
 import { cardTitle, cardsFromOutline, countWords, estimateSeconds, newCard, parseOutline } from './outline';
 import { SAMPLE_LIMIT, sampleTalk, upgradeOldSample } from './sample';
@@ -7,7 +8,7 @@ import { openRehearsal } from './rehearsalView';
 import { MAX_CARDS, shortenedLabel, spokenCard } from './select';
 import { AI_NOTICE, THINKING_HTML, requestBridge, requestShorten, shortenTarget } from './ai';
 import { clearState, loadState, saveState, type SavedState } from './storage';
-import { cardTimeLabel, summarize } from './summary';
+import { cardTimeLabel, summarize, type Summary } from './summary';
 import { addPoint, emptyTalk, moveCard, removePoint } from './talk';
 import { formatTime, parseTime } from './time';
 import type { Card } from './types';
@@ -41,83 +42,80 @@ function markHintDone() {
 
 const app = document.querySelector<HTMLElement>('#app')!;
 app.innerHTML = `
-  <header class="top">
-    <h1 class="brand">Keep the Point</h1>
-    <p class="tagline">Cut your talk to time — keep every point that matters.</p>
-    <p class="how" aria-label="How it works">
-      <span><b aria-hidden="true">①</b> Paste your talk</span>
-      <span><b aria-hidden="true">②</b> Set your time</span>
-      <span><b aria-hidden="true">③</b> Get cue cards that fit</span>
-    </p>
-    <label class="visually-hidden" for="title">Talk title</label>
-    <textarea id="title" class="title" rows="1" autocomplete="off" spellcheck="true"></textarea>
-  </header>
+  <div class="page">
+    <header class="top">
+      <div class="top__brand">${capybaraSvg('capy capy--brand')}<h1 class="brand">Keep the Point</h1></div>
+      <label class="visually-hidden" for="title">Talk title</label>
+      <textarea id="title" class="talk-title" rows="1" autocomplete="off" spellcheck="true"></textarea>
+      <ol class="how" aria-label="How it works">
+        <li><a href="#outline-box" id="how-paste"><b aria-hidden="true">1</b>Paste your talk</a></li>
+        <li><b aria-hidden="true">2</b>Set your time</li>
+        <li><b aria-hidden="true">3</b>Get cue cards that fit</li>
+      </ol>
+    </header>
 
-  <div class="layout">
-    <aside class="side" aria-label="Results">
-      <div class="status">
-        <div class="limit">
-          <label for="limit">Time limit</label>
-          <input id="limit" type="text" inputmode="numeric" placeholder="mm:ss" aria-describedby="limit-error" />
-          <span id="slider-hint" class="slider-hint" ${hintDone() ? 'hidden' : ''}>Try it: drag to cut the talk</span>
-        </div>
-        <input id="limit-slider" class="slider" type="range" min="${SLIDER_MIN}" step="${SLIDER_STEP}" aria-label="Time limit slider" />
-        <p id="limit-error" class="error" role="alert"></p>
-        <p id="summary" class="summary" aria-live="polite"></p>
-        <div class="rehearse">
-          <button id="rehearse-full" type="button">▶ Rehearse full talk</button>
-          <button id="rehearse-short" type="button" aria-describedby="rehearse-note">▶ Rehearse shortened talk</button>
-          <button id="open-cues" type="button" aria-describedby="rehearse-note">Open cue cards</button>
-        </div>
-        <p id="rehearse-note" class="hint rehearse-note"></p>
+    <div class="hero-sentinel" id="hero-sentinel" aria-hidden="true"></div>
+    <section class="hero" id="hero" aria-label="Time limit and result">
+      <div id="summary" class="summary" aria-live="polite"></div>
+      <div class="limit-row">
+        <label for="limit">Fit it into</label>
+        <input id="limit" type="text" inputmode="numeric" placeholder="mm:ss" aria-describedby="limit-error" />
+        <span id="slider-hint" class="slider-hint" ${hintDone() ? 'hidden' : ''}>Try it: drag to cut the talk</span>
       </div>
-      <div class="details">
-        <p id="too-many" class="notice" hidden></p>
-        <div id="result-body">
-          <h2>What fits</h2>
-          <ol id="result-cards" class="cards"></ol>
-          <h2>Required points</h2>
-          <ul id="coverage" class="points"></ul>
+      <input id="limit-slider" class="slider" type="range" min="${SLIDER_MIN}" step="${SLIDER_STEP}" aria-label="Time limit slider" />
+      <p id="limit-error" class="error" role="alert"></p>
+    </section>
+
+    <section class="talk" aria-labelledby="talk-h">
+      <div class="grid3 intro">
+        <div class="intro__main">
+          <h2 id="talk-h">Your talk <span id="card-count" class="count"></span></h2>
+          <p class="sub">Tap a card to edit it. Pink means cut, yellow means said in the short version.</p>
+          <p class="hint ai-notice">✨ ${AI_NOTICE}</p>
+          <p id="too-many" class="notice" hidden></p>
+        </div>
+        <aside class="intro__note" aria-labelledby="points-h">
+          <h3 id="points-h">Required points</h3>
+          <p class="hint">Things your talk must cover. Tag the cards that cover each one.</p>
+          <ul id="point-list" class="points"></ul>
+          <form id="point-form" class="inline-form">
+            <label class="visually-hidden" for="point-name">New required point</label>
+            <input id="point-name" type="text" placeholder="e.g. Evidence" autocomplete="off" aria-describedby="point-error" />
+            <button type="submit">Add point</button>
+          </form>
+          <p id="point-error" class="error" role="alert"></p>
+          <div class="actions">
+            <button id="open-cues" class="primary" type="button" aria-describedby="rehearse-note">Open cue cards</button>
+            <button id="rehearse-full" type="button">▶ Rehearse full talk</button>
+            <button id="rehearse-short" type="button" aria-describedby="rehearse-note">▶ Rehearse shortened talk</button>
+            <p id="rehearse-note" class="hint rehearse-note"></p>
+          </div>
+        </aside>
+      </div>
+
+      <ol id="rows" class="rows"></ol>
+      <p id="no-cards" class="empty" hidden>No cards yet. Paste an outline below, load the sample talk, or add a card.</p>
+
+      <div class="grid3 end">
+        <div class="end__main">
+          <div class="buttons">
+            <button id="add-card" type="button">+ Add card</button>
+            <button id="load-sample" type="button">Load sample talk</button>
+            <button id="clear" class="danger" type="button">Clear</button>
+          </div>
+          <details id="outline-box" class="outline">
+            <summary>Paste an outline</summary>
+            <label for="outline" class="hint">Paste your outline, one card per line.</label>
+            <textarea id="outline" rows="5" placeholder="Hook: why does bread rise?&#10;My research question&#10;How I tested it"></textarea>
+            <p id="outline-error" class="error" role="alert"></p>
+            <button id="make-cards" class="primary" type="button">Make cards</button>
+          </details>
         </div>
       </div>
-    </aside>
+    </section>
 
-    <div class="editor">
-      <section aria-labelledby="outline-h">
-        <h2 id="outline-h">Start from an outline</h2>
-        <label for="outline" class="hint">Paste your outline, one card per line.</label>
-        <textarea id="outline" rows="5" placeholder="Hook: why does bread rise?&#10;My research question&#10;How I tested it"></textarea>
-        <p id="outline-error" class="error" role="alert"></p>
-        <div class="buttons">
-          <button id="make-cards" class="primary" type="button">Make cards</button>
-          <button id="load-sample" type="button">Load sample talk</button>
-          <button id="clear" class="danger" type="button">Clear</button>
-        </div>
-      </section>
-
-      <section aria-labelledby="points-h">
-        <h2 id="points-h">Required points</h2>
-        <p class="hint">Things your talk must cover. Tag the cards that cover each one.</p>
-        <ul id="point-list" class="chips"></ul>
-        <form id="point-form" class="inline-form">
-          <label class="visually-hidden" for="point-name">New required point</label>
-          <input id="point-name" type="text" placeholder="e.g. Evidence" autocomplete="off" aria-describedby="point-error" />
-          <button type="submit">Add point</button>
-        </form>
-        <p id="point-error" class="error" role="alert"></p>
-      </section>
-
-      <section aria-labelledby="cards-h">
-        <h2 id="cards-h">Cards <span id="card-count" class="count"></span></h2>
-        <p class="hint ai-notice">✨ ${AI_NOTICE}</p>
-        <ol id="rows" class="rows"></ol>
-        <p id="no-cards" class="hint" hidden>No cards yet. Paste an outline above or add a card.</p>
-        <button id="add-card" type="button">+ Add card</button>
-      </section>
-    </div>
+    <footer class="app-footer">${capybaraSvg('capy capy--foot')}<span>Keep the Point · timed by a very patient capybara</span></footer>
   </div>
-
-  <footer class="app-footer">${capybaraSvg('capy capy--tiny')}<span>Keep the Point · timed by a very patient capybara</span></footer>
 `;
 
 /** Hidden on screen; the only thing shown when printing. */
@@ -134,9 +132,8 @@ const limitSlider = $<HTMLInputElement>('#limit-slider');
 const sliderHint = $('#slider-hint');
 const summaryEl = $('#summary');
 const tooManyEl = $('#too-many');
-const resultBody = $('#result-body');
-const resultCards = $('#result-cards');
-const coverageEl = $('#coverage');
+const heroEl = $('#hero');
+const outlineBox = $<HTMLDetailsElement>('#outline-box');
 const outlineInput = $<HTMLTextAreaElement>('#outline');
 const outlineError = $('#outline-error');
 const pointList = $('#point-list');
@@ -167,13 +164,19 @@ const drafts = new Map<string, ShortDraft>();
 const MIN_SHORTEN_WORDS = 15;
 /** "Already short." notes under the Shorten button, by card id (not saved). */
 const shortNotes = new Map<string, string>();
+/** The card open for editing in the talk list (not saved). Tap a card to open it. */
+let editingId: string | null = null;
+/** Latest selection summary, used when one row re-renders on its own. */
+let lastSummary: Summary | null = null;
 
 /* ---------- State changes ---------- */
 
 /** Call after any change. `structural` re-renders the editor (don't use it while the student is typing). */
 function changed(structural: boolean) {
-  if (structural) renderEditor();
-  renderResults();
+  const budget = parseTime(state.limit);
+  const summary = budget === null ? null : summarize(state.talk.cards, state.talk.requiredPoints, budget);
+  if (structural) renderEditor(summary ?? lastSummary);
+  renderResults(summary, budget);
   saveState(state);
 }
 
@@ -224,6 +227,8 @@ function syncSlider(budget: number | null) {
   limitSlider.disabled = state.talk.cards.length === 0;
   if (budget !== null) limitSlider.value = String(Math.min(max, Math.max(SLIDER_MIN, budget)));
   limitSlider.setAttribute('aria-valuetext', budget === null ? 'No valid limit' : formatTime(budget));
+  const value = Number(limitSlider.value);
+  limitSlider.style.setProperty('--fill', `${((value - SLIDER_MIN) / Math.max(1, max - SLIDER_MIN)) * 100}%`);
 }
 
 /* ---------- Outline / sample / clear ---------- */
@@ -241,13 +246,25 @@ $('#make-cards').addEventListener('click', () => {
     return;
   }
   state.talk.cards = cardsFromOutline(outlineInput.value);
+  editingId = null;
+  outlineBox.open = false;
   changed(true);
+  rowsEl.querySelector<HTMLElement>('[data-action="edit"]')?.focus();
+});
+
+/** "1 Paste your talk" opens the outline box and puts the cursor in it. */
+$('#how-paste').addEventListener('click', (e) => {
+  e.preventDefault();
+  outlineBox.open = true;
+  outlineBox.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  outlineInput.focus({ preventScroll: true });
 });
 
 $('#load-sample').addEventListener('click', () => {
   if (state.talk.cards.length > 0 && !confirm('Replace your talk with the sample science-fair talk?')) return;
   state.talk = structuredClone(sampleTalk);
   state.limit = SAMPLE_LIMIT;
+  editingId = null;
   syncInputs();
   changed(true);
 });
@@ -256,11 +273,13 @@ $('#clear').addEventListener('click', () => {
   if (!confirm('Clear everything and start fresh? Your cards and required points will be deleted.')) return;
   clearState();
   state = { talk: emptyTalk(), limit: DEFAULT_LIMIT };
+  editingId = null;
   outlineInput.value = '';
   outlineError.textContent = '';
   pointError.textContent = '';
   syncInputs();
   changed(true);
+  outlineBox.open = true;
   outlineInput.focus();
 });
 
@@ -293,6 +312,7 @@ pointList.addEventListener('click', (e) => {
 $('#add-card').addEventListener('click', () => {
   const card = newCard('');
   state.talk.cards.push(card);
+  editingId = card.id; // a new card opens ready to type
   changed(true);
   rowsEl.querySelector<HTMLInputElement>(`[data-id="${card.id}"] [data-field="text"]`)?.focus();
 });
@@ -309,7 +329,7 @@ rowsEl.addEventListener('input', (e) => {
     changed(false);
   } else if (el.dataset.field === 'text') {
     card.text = el.value;
-    el.closest('.row')?.querySelector<HTMLInputElement>('[data-field="title"]')?.setAttribute('placeholder', titlePlaceholder(card));
+    row.querySelector<HTMLInputElement>('[data-field="title"]')?.setAttribute('placeholder', titlePlaceholder(card));
     if (shortNotes.delete(card.id)) renderShort(card.id);
     const shortenBtn = row.querySelector<HTMLButtonElement>('[data-action="shorten"]');
     if (shortenBtn && !drafts.get(card.id)?.loading) shortenBtn.disabled = !card.text.trim();
@@ -349,7 +369,7 @@ rowsEl.addEventListener('input', (e) => {
     if (!valid) return; // keep the last good value until they fix it
     card.seconds = n;
     card.estimated = false;
-    row.classList.remove('row--est');
+    row.classList.remove('card--est');
     changed(false);
   }
 });
@@ -380,7 +400,7 @@ rowsEl.addEventListener('change', (e) => {
     }
     case 'locked':
       card.locked = (el as HTMLInputElement).checked;
-      row.classList.toggle('row--locked', card.locked);
+      row.classList.toggle('card--locked', card.locked);
       break;
     case 'priority':
       if (el.value === '') delete card.priority;
@@ -393,13 +413,36 @@ rowsEl.addEventListener('change', (e) => {
 });
 
 rowsEl.addEventListener('click', (e) => {
-  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-action]');
-  const row = btn?.closest<HTMLElement>('[data-id]');
-  if (!btn || !row) return;
+  const target = e.target as HTMLElement;
+  const btn = target.closest<HTMLButtonElement>('button[data-action]');
+  // Tapping anywhere on a closed card opens it for editing.
+  const view = btn ? null : target.closest<HTMLElement>('.card__view');
+  const row = (btn ?? view)?.closest<HTMLElement>('[data-id]');
+  if (!row) return;
   const id = row.dataset.id!;
+  if (view) {
+    openEditor(id);
+    return;
+  }
   const index = state.talk.cards.findIndex((c) => c.id === id);
-  const action = btn.dataset.action!;
+  const action = btn!.dataset.action!;
   if (handleShortAction(action, state.talk.cards[index])) return;
+
+  if (action === 'edit') {
+    openEditor(id);
+    return;
+  }
+  if (action === 'done') {
+    closeEditor(true);
+    return;
+  }
+  if (action === 'keep') {
+    // "Keep this card" on a cut card: the same as ticking Always keep.
+    state.talk.cards[index].locked = true;
+    changed(true);
+    rowsEl.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"] [data-action="edit"]`)?.focus();
+    return;
+  }
 
   if (action === 'up' || action === 'down') {
     state.talk.cards = moveCard(state.talk.cards, index, action === 'up' ? -1 : 1);
@@ -410,13 +453,39 @@ rowsEl.addEventListener('click', (e) => {
     (same.disabled ? moved.querySelector<HTMLButtonElement>(`[data-action="${action === 'up' ? 'down' : 'up'}"]`)! : same).focus();
   } else if (action === 'delete') {
     state.talk.cards.splice(index, 1);
+    if (editingId === id) editingId = null;
     changed(true);
     const next = state.talk.cards[Math.min(index, state.talk.cards.length - 1)];
     (next
-      ? rowsEl.querySelector<HTMLElement>(`[data-id="${next.id}"] [data-field="text"]`)
+      ? rowsEl.querySelector<HTMLElement>(`[data-id="${CSS.escape(next.id)}"] [data-action="edit"]`)
       : $('#add-card'))?.focus();
   }
 });
+
+// Escape closes the open card (unless a short-version draft box has focus and wants to keep typing).
+rowsEl.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !editingId) return;
+  if ((e.target as HTMLElement).closest('[data-id]')?.getAttribute('data-id') !== editingId) return;
+  e.preventDefault();
+  closeEditor(true);
+});
+
+/** Open one card for editing (closing any other) and put the cursor in its text. */
+function openEditor(id: string) {
+  const previous = editingId;
+  editingId = id;
+  if (previous && previous !== id) renderRow(previous);
+  renderRow(id);
+  rowsEl.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"] [data-field="text"]`)?.focus();
+}
+
+function closeEditor(focusCard: boolean) {
+  const id = editingId;
+  if (!id) return;
+  editingId = null;
+  renderRow(id);
+  if (focusCard) rowsEl.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"] [data-action="edit"]`)?.focus();
+}
 
 /* ---------- Short versions ---------- */
 
@@ -536,7 +605,8 @@ function renderShort(id: string, focus?: 'draft' | 'short' | 'shorten') {
   const row = rowsEl.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`);
   const card = cardById(id);
   if (!row || !card) return;
-  const box = row.querySelector<HTMLElement>('.row__short')!;
+  const box = row.querySelector<HTMLElement>('.row__short');
+  if (!box) return; // card is closed; the draft shows when it's opened again
   box.classList.toggle('short--est', !!card.short?.estimated);
   box.innerHTML = shortSectionHtml(card, state.talk.cards.indexOf(card) + 1);
   const target =
@@ -639,17 +709,21 @@ function syncInputs() {
   fitTitle();
 }
 
-function renderEditor() {
-  const { cards, requiredPoints } = state.talk;
+type CardState = 'kept' | 'short' | 'cut' | 'none';
 
-  pointList.innerHTML = requiredPoints.length
-    ? requiredPoints
-        .map(
-          (p) => `<li class="chip">${esc(p)}<button type="button" data-point="${esc(p)}" aria-label="Remove required point ${esc(p)}">×</button></li>`,
-        )
-        .join('')
-    : '<li class="hint">None yet.</li>';
+/** How the current selection uses a card, plus why it was cut. Only reads the summary; no selection logic here. */
+function cardStatus(card: Card, summary: Summary | null): { state: CardState; reason: string } {
+  const result = summary?.result;
+  if (!summary || !result || (!result.fits && !result.shortest)) return { state: 'none', reason: '' };
+  if (summary.keptCards.some((c) => c.id === card.id)) {
+    return { state: summary.shortIds.includes(card.id) ? 'short' : 'kept', reason: '' };
+  }
+  const reason = result.fits ? (result.cut.find((c) => c.card.id === card.id)?.reason ?? '') : 'Not in the shortest valid talk';
+  return { state: 'cut', reason };
+}
 
+function renderEditor(summary: Summary | null) {
+  const { cards } = state.talk;
   cardCount.textContent = !cards.length
     ? ''
     : cards.length > MAX_CARDS
@@ -657,66 +731,144 @@ function renderEditor() {
       : `(${cards.length} of ${MAX_CARDS})`;
   cardCount.classList.toggle('count--over', cards.length > MAX_CARDS);
   noCards.hidden = cards.length > 0;
-
-  rowsEl.innerHTML = cards
-    .map((card, i) => {
-      const n = i + 1;
-      const tagBoxes = requiredPoints.length
-        ? requiredPoints
-            .map(
-              (p) => `<label class="tag"><input type="checkbox" data-field="tag" value="${esc(p)}" ${card.tags.includes(p) ? 'checked' : ''} /> ${esc(p)}</label>`,
-            )
-            .join('')
-        : '<span class="hint">Add required points to tag cards.</span>';
-      const priorityOptions = ['', '1', '2', '3', '4', '5']
-        .map((v) => `<option value="${v}" ${String(card.priority ?? '') === v ? 'selected' : ''}>${v || '—'}</option>`)
-        .join('');
-      return `
-        <li class="row ${card.estimated ? 'row--est' : ''} ${card.locked ? 'row--locked' : ''}" data-id="${esc(card.id)}">
-          <div class="row__top">
-            <span class="row__num" aria-hidden="true">${n}</span>
-            <input class="row__title" type="text" data-field="title" value="${esc(card.title ?? '')}" placeholder="${esc(titlePlaceholder(card))}" maxlength="200" aria-label="Card ${n} title (optional)" />
-            <span class="row__secs">
-              <span class="tilde" title="Estimated from word count">~</span><input type="number" min="1" max="${MAX_SECONDS}" step="1" data-field="seconds" value="${card.seconds}" aria-label="Card ${n} length in seconds" /><span aria-hidden="true">s</span>
-            </span>
-          </div>
-          <textarea class="row__text" data-field="text" rows="3" placeholder="What you'll say" aria-label="Card ${n} spoken text">${esc(card.text)}</textarea>
-          <div class="row__tags" role="group" aria-label="Card ${n} covers">${tagBoxes}</div>
-          <div class="row__controls">
-            <label class="lock"><input type="checkbox" data-field="locked" ${card.locked ? 'checked' : ''} /> Always keep</label>
-            <label class="prio">Priority <select data-field="priority" aria-label="Card ${n} priority">${priorityOptions}</select></label>
-            <span class="row__actions">
-              <button type="button" data-action="up" aria-label="Move card ${n} up" ${i === 0 ? 'disabled' : ''}>↑</button>
-              <button type="button" data-action="down" aria-label="Move card ${n} down" ${i === cards.length - 1 ? 'disabled' : ''}>↓</button>
-              <button type="button" data-action="delete" class="danger" aria-label="Delete card ${n}">Delete</button>
-            </span>
-          </div>
-          <div class="row__short ${card.short?.estimated ? 'short--est' : ''}">${shortSectionHtml(card, n)}</div>
-        </li>`;
-    })
-    .join('');
+  if (cards.length === 0) outlineBox.open = true;
+  rowsEl.innerHTML = cards.map((card, i) => rowHtml(card, i, summary)).join('');
 }
 
-function renderResults() {
-  const { cards, requiredPoints } = state.talk;
-  const budget = parseTime(state.limit);
+/** Re-render one card in place (opening or closing it). */
+function renderRow(id: string) {
+  const card = cardById(id);
+  const li = rowsEl.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`);
+  if (!card || !li) return;
+  li.outerHTML = rowHtml(card, state.talk.cards.indexOf(card), lastSummary);
+}
+
+function rowClass(card: Card, st: CardState): string {
+  return [
+    'card',
+    `card--${st}`,
+    card.locked ? 'card--locked' : '',
+    card.estimated ? 'card--est' : '',
+    editingId === card.id ? 'card--editing' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function rowHtml(card: Card, i: number, summary: Summary | null): string {
+  const { state: st, reason } = cardStatus(card, summary);
+  const editing = editingId === card.id;
+  return `
+    <li class="${rowClass(card, st)}" data-id="${esc(card.id)}">
+      <div class="card__gutter"><span class="card__n" aria-hidden="true">${i + 1}</span><span class="card__secs" data-ref="secs">${secsLabel(card, st, summary)}</span></div>
+      <div class="card__body" data-ref="body">${editing ? editHtml(card, i) : viewHtml(card, i, st)}</div>
+      <aside class="card__note" data-ref="note">${noteHtml(card, st, reason, summary)}</aside>
+    </li>`;
+}
+
+function secsLabel(card: Card, st: CardState, summary: Summary | null): string {
+  return st === 'short' ? cardTimeLabel(spokenCard(card, summary?.shortIds ?? [])) : cardTimeLabel(card);
+}
+
+function viewHtml(card: Card, i: number, st: CardState): string {
+  const title = cardTitle(card);
+  const text = card.text.trim();
+  let extra = '';
+  if (st === 'short' && card.short) extra = `<p class="card__short"><span class="hl">${esc(card.short.text)}</span></p>`;
+  else if (card.short) extra = `<p class="card__spare">Short version ready (${card.short.estimated ? '~' : ''}${card.short.seconds}s), not needed at this limit.</p>`;
+  const body = !text
+    ? '<p class="card__text card__text--empty">Tap to write what you&#39;ll say.</p>'
+    : text !== title
+      ? `<p class="card__text">${esc(card.text)}</p>`
+      : '';
+  return `
+    <div class="card__view">
+      <h3 class="card__title"><button type="button" class="card__open" data-action="edit" aria-expanded="false" aria-label="Edit card ${i + 1}: ${esc(title || 'empty card')}">${esc(title) || '(empty card)'}</button></h3>
+      ${body}
+      ${extra}
+    </div>`;
+}
+
+function editHtml(card: Card, i: number): string {
+  const n = i + 1;
+  const { requiredPoints, cards } = state.talk;
+  const tagBoxes = requiredPoints.length
+    ? requiredPoints
+        .map((p) => `<label class="tag"><input type="checkbox" data-field="tag" value="${esc(p)}" ${card.tags.includes(p) ? 'checked' : ''} /> ${esc(p)}</label>`)
+        .join('')
+    : '<span class="hint">Add required points to tag cards.</span>';
+  const priorityOptions = ['', '1', '2', '3', '4', '5']
+    .map((v) => `<option value="${v}" ${String(card.priority ?? '') === v ? 'selected' : ''}>${v || '—'}</option>`)
+    .join('');
+  return `
+    <div class="edit">
+      <div class="edit__two">
+        <label class="field">Title <span class="hint">(optional)</span>
+          <input class="edit__title" type="text" data-field="title" value="${esc(card.title ?? '')}" placeholder="${esc(titlePlaceholder(card))}" maxlength="200" aria-label="Card ${n} title (optional)" />
+        </label>
+        <label class="field">Seconds
+          <span class="secs"><span class="tilde" title="Estimated from word count">~</span><input type="number" min="1" max="${MAX_SECONDS}" step="1" data-field="seconds" value="${card.seconds}" aria-label="Card ${n} length in seconds" /></span>
+        </label>
+      </div>
+      <label class="field">What you'll say
+        <textarea data-field="text" rows="4" placeholder="What you'll say" aria-label="Card ${n} spoken text">${esc(card.text)}</textarea>
+      </label>
+      <fieldset class="edit__tags"><legend>Covers</legend>${tagBoxes}</fieldset>
+      <div class="edit__row">
+        <label class="check"><input type="checkbox" data-field="locked" ${card.locked ? 'checked' : ''} /> Always keep</label>
+        <label class="check">Priority <select data-field="priority" aria-label="Card ${n} priority">${priorityOptions}</select></label>
+      </div>
+      <div class="row__short ${card.short?.estimated ? 'short--est' : ''}">${shortSectionHtml(card, n)}</div>
+      <div class="edit__actions">
+        <button type="button" data-action="up" aria-label="Move card ${n} up" ${i === 0 ? 'disabled' : ''}>↑ Up</button>
+        <button type="button" data-action="down" aria-label="Move card ${n} down" ${i === cards.length - 1 ? 'disabled' : ''}>↓ Down</button>
+        <button type="button" data-action="delete" class="danger" aria-label="Delete card ${n}">Delete</button>
+        <button type="button" data-action="done" class="primary">Done</button>
+      </div>
+    </div>`;
+}
+
+function noteHtml(card: Card, st: CardState, reason: string, summary: Summary | null): string {
+  const lock = card.locked ? '<span class="note__lock">Always keep</span>' : '';
+  if (st === 'cut') {
+    const canKeep = !!summary?.result?.fits && !card.locked;
+    return `<b class="note__cut">Cut</b>${esc(reason)}${canKeep ? '<br /><button type="button" class="linkbtn" data-action="keep">Keep this card</button>' : ''}`;
+  }
+  if (st === 'short') {
+    return `<b>${esc(shortenedLabel(card))}</b>${card.tags.length ? `Covers ${esc(card.tags.join(', '))}.` : ''}${lock}`;
+  }
+  if (st === 'kept') {
+    if (card.tags.length) return `<b>Covers ${esc(card.tags.join(', '))}</b>${lock}`;
+    return `<b>${card.priority !== undefined ? `Priority ${card.priority}` : 'No priority'}</b>Optional${lock}`;
+  }
+  return lock;
+}
+
+function renderResults(summary: Summary | null, budget: number | null) {
+  const { cards } = state.talk;
   printSheet.innerHTML = printSheetHtml(state.talk, budget);
   cueView?.refresh();
   limitError.textContent = budget === null ? 'Enter a time like 2:00' : '';
   limitInput.toggleAttribute('aria-invalid', budget === null);
   syncSlider(budget);
-  if (budget === null) {
+  renderPoints(summary ?? lastSummary);
+  if (budget === null || !summary) {
     updateRehearseButtons(false, false);
     return; // keep showing the last valid result
   }
-
-  const summary = summarize(cards, requiredPoints, budget);
+  lastSummary = summary;
   const result = summary.result;
-  summaryEl.className = `summary ${summary.tone === 'bad' ? 'summary--bad' : summary.tone === 'quiet' ? 'summary--quiet' : ''}`;
+
   if (summary.headline && summary.chips) {
-    summaryEl.innerHTML = `<span class="summary__head">${esc(summary.headline)}</span><span class="summary__chips">${summary.chips.map((c) => `<span class="summary__chip">${esc(c)}</span>`).join('')}</span>`;
+    const [was, now] = summary.headline.split(' → ');
+    const chipClass = (c: string) => (c.includes('shortened') ? 'chip--short' : c.includes('cut') ? 'chip--cut' : 'chip--spare');
+    summaryEl.className = 'summary';
+    summaryEl.innerHTML = `
+      <p class="big"><span class="was">${esc(was)}</span><span class="to" aria-hidden="true">→</span><span class="visually-hidden"> cut to </span><span class="now">${esc(now)}</span></p>
+      <ul class="chips">${summary.chips.map((c) => `<li class="${chipClass(c)}">${esc(c)}</li>`).join('')}</ul>`;
   } else {
-    summaryEl.textContent = summary.text;
+    summaryEl.className = `summary ${summary.tone === 'bad' ? 'summary--bad' : 'summary--quiet'}`;
+    summaryEl.innerHTML = `<p class="big big--text">${esc(summary.text)}</p>`;
   }
   shortenedCards = result?.fits ? result.kept : null;
   currentShortIds = summary.shortIds;
@@ -726,43 +878,36 @@ function renderResults() {
   if (cards.length > MAX_CARDS) {
     tooManyEl.textContent = `Keep the Point can sort out up to ${MAX_CARDS} cards. Merge or delete ${plural(cards.length - MAX_CARDS, 'card')} and your result will appear here.`;
   }
-  resultBody.hidden = result === null;
-  if (result === null) return;
 
-  const keptCards = summary.keptCards;
-  const reasons = new Map(result.fits ? result.cut.map((c) => [c.card.id, c.reason]) : []);
+  // Update each card's marks in place. The open card keeps its editor (and focus); only its marks change.
+  for (const card of cards) {
+    const li = rowsEl.querySelector<HTMLElement>(`[data-id="${CSS.escape(card.id)}"]`);
+    if (!li) continue;
+    const { state: st, reason } = cardStatus(card, summary);
+    li.className = rowClass(card, st);
+    li.querySelector('[data-ref="secs"]')!.innerHTML = secsLabel(card, st, summary);
+    li.querySelector('[data-ref="note"]')!.innerHTML = noteHtml(card, st, reason, summary);
+    if (editingId !== card.id) li.querySelector('[data-ref="body"]')!.innerHTML = viewHtml(card, cards.indexOf(card), st);
+  }
+}
 
-  const keptIds = new Set(keptCards.map((c) => c.id));
-  const shortIds = summary.shortIds;
-  resultCards.innerHTML = cards
-    .map((card) => {
-      const kept = keptIds.has(card.id);
-      const isShort = kept && !!card.short && shortIds.includes(card.id);
-      const reason = kept ? '' : (reasons.get(card.id) ?? (result.fits ? '' : 'Not in the shortest valid talk'));
-      const meta = [card.locked ? 'Always keep' : null, card.tags.join(', ') || null, card.priority !== undefined ? `Priority ${card.priority}` : null]
-        .filter(Boolean)
-        .join(' · ');
-      return `
-        <li class="card ${kept ? '' : 'card--cut'} ${isShort ? 'card--short' : ''}">
-          <div class="card__main">
-            <span class="card__text">${esc(cardTitle(card)) || '<em>(empty card)</em>'}</span>
-            <span class="card__time">${cardTimeLabel(spokenCard(card, shortIds))}</span>
-          </div>
-          ${isShort ? `<div class="card__short"><strong>${esc(shortenedLabel(card))}</strong> <span>“${esc(card.short!.text)}”</span></div>` : ''}
-          ${meta ? `<div class="card__meta">${esc(meta)}</div>` : ''}
-          ${reason ? `<div class="card__reason">${esc(reason)}</div>` : ''}
-        </li>`;
-    })
-    .join('');
-
-  coverageEl.innerHTML = requiredPoints.length
+/** Required points with who covers each one, and a × to remove it. */
+function renderPoints(summary: Summary | null) {
+  const { requiredPoints } = state.talk;
+  const kept = summary?.result ? summary.keptCards : null;
+  pointList.innerHTML = requiredPoints.length
     ? requiredPoints
-        .map((point) => {
-          const by = keptCards.filter((c) => c.tags.includes(point)).map((c) => cardTitle(c) || '(empty card)');
-          return `<li class="${by.length ? '' : 'missing'}"><span class="point">${esc(point)}</span><span class="by">${by.length ? esc(by.join(', ')) : 'Not covered'}</span></li>`;
+        .map((p) => {
+          const by = kept ? kept.filter((c) => c.tags.includes(p)).map((c) => cardTitle(c) || '(empty card)') : null;
+          const missing = by !== null && by.length === 0;
+          return `<li class="${missing ? 'missing' : by ? 'covered' : ''}">
+            <span class="pt">${esc(p)}</span>
+            <span class="by">${by === null ? '' : by.length ? esc(by.join(', ')) : 'Not covered'}</span>
+            <button type="button" class="pt__remove" data-point="${esc(p)}" aria-label="Remove required point ${esc(p)}">×</button>
+          </li>`;
         })
         .join('')
-    : '<li class="hint">No required points yet.</li>';
+    : '<li class="none">None yet.</li>';
 }
 
 /* ---------- Helpers ---------- */
@@ -778,6 +923,14 @@ function plural(n: number, word: string): string {
 
 function esc(text: string): string {
   return text.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);
+}
+
+/* ---------- Sticky time control ---------- */
+
+// The hero sticks to the top while you scroll the talk; once it's stuck it shrinks so the cards stay visible.
+const sentinel = $('#hero-sentinel');
+if ('IntersectionObserver' in window) {
+  new IntersectionObserver(([entry]) => heroEl.classList.toggle('hero--stuck', !entry.isIntersecting)).observe(sentinel);
 }
 
 /* ---------- Start ---------- */
