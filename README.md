@@ -1,16 +1,44 @@
 # Keep the Point
 
-A web app for students whose presentation runs too long. You give it your talk as cards, the points you must cover, and your time limit, and it tells you what to cut.
+Keep the Point helps students fit a presentation into a time limit while covering every required point. Built for Teens Hack Houston 2026 (productivity theme). [Try it live](https://keep-the-point.vercel.app/)
 
-What it does so far:
+## Try it in 30 seconds
 
-- **Your own talk.** Paste an outline (one card per line) and click **Make cards**, or start from the sample science-fair talk.
-- **Edit cards.** Change the text and seconds, tag the required points each card covers, lock cards you must keep, set priority 1-5, reorder, add and delete. Up to 12 cards.
-- **Estimated times.** New cards get a guess from their word count (150 words a minute, at least 3 seconds), shown as `~12s` until you type a real time.
-- **Live results.** The result updates as you type.
-- **Saved automatically** in your browser. **Clear** starts fresh.
-- **Rehearse.** Time yourself on the full talk or just the cards that fit. Press Space (or tap) to move to the next card, ← to re-time the previous card, Esc to cancel. At the end, compare old and new times and choose whether to save them.
-- **Cue cards.** See (and print, about 4 per A4 page) just the cards you're keeping, with a "✂ Cut here" marker wherever something was cut, so you know where to add a smooth bridge. Changed your mind? Click a marker and choose "Keep this card".
+1. Drag the time slider on the sample science-fair talk and watch which cards get shortened or cut.
+2. Click **Open cue cards** to see what you'll say and where the cuts land.
+3. Close the cue cards and click **Present live**. Press Space to start the clock, then press it again to advance to the next card.
+
+## Features
+
+- **Fit to time.** Set a time limit and get cue cards that keep required points and locked cards whenever a valid plan fits.
+- **Smart setup.** Paste a script and rubric to get a suggested breakdown into cards and required points.
+- **AI shorten and bridge lines.** Ask for a shorter version of a card or a line that connects the cards around a cut. Review each suggestion before using it.
+- **Live pacing.** See your time left, the projected finish, and updates to your remaining cards as you speak.
+- **Practice insights.** Compare recent rehearsals and spot cards that keep running long.
+
+## How it works
+
+The app runs an exact search over full, short, and cut options for every card, honoring locks and required points and picking the highest-priority plan that fits. AI only offers suggestions and never rewrites your original words. Smart setup rebuilds the cards from the original sentences. Live pacing only cuts or shortens upcoming cards when you're behind and only adds material back when you're at least 8 seconds ahead. It never swaps one card for another.
+
+## Tech stack and privacy
+
+Vite and TypeScript power the app, Vercel Functions serve AI requests, and Vitest runs 212 tests. Talks and practice history are saved in your browser. When you use an AI feature, the text needed for that request is sent to Google Gemini.
+
+**Run locally.** Use `npm install`, optionally set `GEMINI_API_KEY=your-key` in `.env.local` for AI features, then run `npm run dev`.
+
+## Screenshots
+
+**Default sample at 1:45**
+
+![Keep the Point with the default 1:45 limit, one card shortened, and one card cut](docs/hero.png)
+
+**Cue cards**
+
+![Cue cards for the sample talk, with the short version and a cut marker](docs/cue-cards.png)
+
+**Present live**
+
+![Present live with the current cue card, countdown, and projected finish](docs/present-live.png)
 
 ## Running it
 

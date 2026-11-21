@@ -14,7 +14,7 @@ export interface Summary {
   keptCards: Card[];
   /** Ids of kept cards that use their short version. */
   shortIds: string[];
-  /** When the talk fits: the big "2:38 → 1:42" part of `text`. */
+  /** When the talk fits: a single time or the before-and-after times. */
   headline?: string;
   /** When the talk fits: small details shown under the headline, e.g. ["3s spare", "1 shortened", "1 cut"]. */
   chips?: string[];
@@ -46,12 +46,15 @@ export function summarize(cards: Card[], requiredPoints: string[], budgetSeconds
 
   if (result.fits) {
     const total = timeLabel(result.totalSeconds, anyEstimated(result.kept, result.shortIds));
-    const chips = [`${result.spareSeconds}s spare`];
+    const trimmed = result.shortIds.length > 0 || result.cut.length > 0;
+    const headline = trimmed ? `${full} → ${total}` : total;
+    const spare = `${result.spareSeconds}s spare`;
+    const chips = [trimmed ? spare : `Fits · ${spare}`];
     if (result.shortIds.length) chips.push(`${result.shortIds.length} shortened`);
     if (result.cut.length) chips.push(`${result.cut.length} cut`);
     return {
-      text: `${full} → ${total} · ${result.spareSeconds}s spare${shortNote(result.shortIds)}`,
-      headline: `${full} → ${total}`,
+      text: `${headline} · ${chips[0]}${shortNote(result.shortIds)}`,
+      headline,
       chips,
       tone: 'ok',
       result,

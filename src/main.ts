@@ -1143,11 +1143,14 @@ function renderResults(summary: Summary | null, budget: number | null) {
   const result = summary.result;
 
   if (summary.headline && summary.chips) {
-    const [was, now] = summary.headline.split(' → ');
+    const [first, afterTrim] = summary.headline.split(' → ');
+    const before = afterTrim
+      ? `<span class="was">${esc(first)}</span><span class="to" aria-hidden="true">→</span><span class="visually-hidden"> cut to </span>`
+      : '';
     const chipClass = (c: string) => (c.includes('shortened') ? 'chip--short' : c.includes('cut') ? 'chip--cut' : 'chip--spare');
     summaryEl.className = 'summary';
     summaryEl.innerHTML = `
-      <p class="big"><span class="was">${esc(was)}</span><span class="to" aria-hidden="true">→</span><span class="visually-hidden"> cut to </span><span class="now">${esc(now)}</span></p>
+      <p class="big">${before}<span class="now">${esc(afterTrim ?? first)}</span></p>
       <ul class="chips">${summary.chips.map((c) => `<li class="${chipClass(c)}">${esc(c)}</li>`).join('')}</ul>`;
   } else {
     summaryEl.className = `summary ${summary.tone === 'bad' ? 'summary--bad' : 'summary--quiet'}`;

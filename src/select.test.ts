@@ -191,3 +191,13 @@ describe('sample default limit', () => {
     expect(s.chips).toEqual(['3s spare', '1 shortened', '1 cut']);
   });
 });
+
+describe('summary for a talk that fits in full', () => {
+  it('shows one time and a Fits chip even when a short version is available', () => {
+    const summary = summarize(sampleTalk.cards, requiredPoints, 171);
+
+    expect(summary.headline).toBe('2:38');
+    expect(summary.chips).toEqual(['Fits · 13s spare']);
+    expect(summary.text).toBe('2:38 · Fits · 13s spare');
+  });
+});
