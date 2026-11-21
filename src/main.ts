@@ -979,7 +979,7 @@ function updateRehearseButtons(fits: boolean, limitValid: boolean) {
     cards.length === 0 || !limitValid || fits
       ? ''
       : cards.length > MAX_CARDS
-        ? 'The shortened talk needs 12 cards or fewer.'
+        ? 'Cue cards, shortened rehearsal and Present live need 12 cards or fewer.'
         : 'Shortened rehearsal and cue cards are available once the talk can fit the time limit.';
 }
 

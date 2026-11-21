@@ -358,6 +358,7 @@ button#make-smart[aria-busy] { opacity: 1; }
   .talk-title { font-size: 1.05rem; }
   .how { font-size: 0.85rem; gap: 6px; }
   .big { font-size: clamp(2.2rem, 11vw, 2.9rem); }
+  .big--text { font-size: 1.25rem; line-height: 1.3; }
   .chips { margin-top: var(--s-2); gap: 6px; }
   .chips li { font-size: 0.82rem; padding: 0 8px; }
   .limit-row { margin-top: var(--s-2); font-size: 1.1rem; }
