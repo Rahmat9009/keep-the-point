@@ -419,9 +419,9 @@ kbd {
 .lv__left { font-family: var(--font-head); font-size: clamp(2.2rem, 6vw, 3.4rem); font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 .lv__unit { color: var(--muted); font-size: 1rem; font-weight: 600; letter-spacing: 0; }
 .lv__pace { margin-top: 2px; font-weight: 700; font-size: 1.05rem; color: var(--muted); }
-.lv__pace[data-tone="behind"] { color: var(--amber-ink); }
-.lv__pace[data-tone="ahead"] { color: var(--green); }
-.lv__pace[data-tone="over"] { color: var(--pink-ink); }
+.lv__pace[data-tone="over"] { color: var(--amber-ink); }
+.lv__pace[data-tone="spare"] { color: var(--green); }
+.lv__pace[data-tone="late"] { color: var(--pink-ink); }
 .lv__banner {
   margin: 0; padding: 10px 20px; font-weight: 700; font-size: 1.05rem; text-align: center;
   color: var(--hl-ink); background: var(--yellow); overflow-wrap: anywhere;

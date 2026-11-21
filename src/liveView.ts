@@ -2,9 +2,10 @@ import {
   describeChanges,
   gapLabel,
   diffPlans,
-  paceLabel,
-  paceSeconds,
+  finishLabel,
+  planSeconds,
   plannedSeconds,
+  projectedFinish,
   replan,
   type LivePlan,
   type SpokenEntry,
@@ -72,7 +73,7 @@ export function openLive(opts: LiveOptions): () => void {
       <div class="rh__where"><span class="rh__mode">Present live</span> · <span data-ref="progress"></span></div>
       <div class="lv__time">
         <div class="lv__left" aria-label="Time on the clock"><span data-ref="left">${formatTime(limitSeconds)}</span><span class="lv__unit"> left</span></div>
-        <div class="lv__pace" data-ref="pace">On track</div>
+        <div class="lv__pace" data-ref="pace"></div>
       </div>
       <div class="rh__buttons">
         <button type="button" data-ref="undo" aria-keyshortcuts="U" disabled>Undo change</button>
@@ -170,12 +171,14 @@ export function openLive(opts: LiveOptions): () => void {
     return startedAt === null ? 0 : (endedAt ?? now) - startedAt;
   }
 
-  function currentPace(now: number) {
-    const actual = said.reduce((t, s) => t + s.ms, 0);
-    const planned = said.reduce((t, s) => t + plannedSeconds(byId.get(s.id)!, s.short), 0);
-    const currentId = plan.ids[0];
-    if (startedAt === null || endedAt !== null || !currentId) return paceSeconds(actual, planned, 0, 0);
-    return paceSeconds(actual, planned, now - cardStartedAt, plannedSeconds(byId.get(currentId)!, isShort(currentId)));
+  /** Projected finish in seconds: elapsed + what's left of the current card's planned time + the rest of the plan. */
+  function finishAt(now: number) {
+    const [currentId, ...rest] = plan.ids;
+    if (!currentId) return elapsedMs(now) / 1000;
+    const currentPlanned = plannedSeconds(byId.get(currentId)!, isShort(currentId));
+    const restPlanned = planSeconds({ ids: rest, shortIds: plan.shortIds }, cards);
+    const onCard = startedAt === null ? 0 : (now - cardStartedAt) / 1000;
+    return projectedFinish(elapsedMs(now) / 1000, onCard, currentPlanned, restPlanned);
   }
 
   function advance() {
@@ -204,6 +207,7 @@ export function openLive(opts: LiveOptions): () => void {
       limitSeconds,
       spoken: said,
       elapsedSeconds: elapsedMs(now) / 1000,
+      current: before,
     });
     const changes = diffPlans(before, next.plan, cards);
     const becameWrapUp = next.wrapUp && !wrapUp;
@@ -211,7 +215,7 @@ export function openLive(opts: LiveOptions): () => void {
       undo = { plan: before, wrapUp };
       plan = next.plan;
       wrapUp = next.wrapUp;
-      const text = changes.length ? describeChanges(changes, cards, currentPace(now), false) : '';
+      const text = changes.length ? describeChanges(changes, cards, next.overSeconds, false) : '';
       const wrap = next.wrapUp ? describeChanges([], cards, 0, true) : '';
       showBanner([text, wrap].filter(Boolean).join(' · '));
     } else {
@@ -274,14 +278,9 @@ export function openLive(opts: LiveOptions): () => void {
     leftEl.textContent = formatTime(over ? Math.floor(-leftMs / 1000) : Math.ceil(leftMs / 1000));
     unitEl.textContent = over ? ' over' : ' left';
     root.classList.toggle('lv--over', over);
-    if (over) {
-      paceEl.textContent = 'Over the limit';
-      paceEl.dataset.tone = 'over';
-    } else {
-      const label = paceLabel(currentPace(now));
-      paceEl.textContent = wrapUp ? `${label.text} · wrap up` : label.text;
-      paceEl.dataset.tone = label.tone;
-    }
+    const label = finishLabel(finishAt(now), limitSeconds, elapsedMs(now) / 1000);
+    paceEl.textContent = label.text;
+    paceEl.dataset.tone = label.tone;
     if (startedAt !== null && endedAt === null && !closed) frame = requestAnimationFrame(tick);
   }
 
@@ -308,7 +307,7 @@ export function openLive(opts: LiveOptions): () => void {
     leftEl.textContent = formatTime(totalS);
     unitEl.textContent = ` / ${formatTime(limitSeconds)}`;
     paceEl.textContent = diff > 0 ? `${gapLabel(diff)} over` : diff < 0 ? `${gapLabel(diff)} under` : 'Right on time';
-    paceEl.dataset.tone = diff > 0 ? 'over' : 'ok';
+    paceEl.dataset.tone = diff > 0 ? 'late' : 'spare';
     undoBtn.hidden = true;
     ref('exit').hidden = true;
     ref('keys').hidden = true;
