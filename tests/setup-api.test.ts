@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { POST as setupPOST, setupPrompt } from '../api/setup';
+import { POST as setupPOST, minCards, setupProblems, setupPrompt } from '../api/setup';
 import { UNAVAILABLE } from '../api/_gemini';
 
 const FAKE_KEY = 'test-key-not-real-123';
@@ -22,7 +22,8 @@ const sentences = ['Hi everyone.', 'School should start later.', 'Teens need 8.5
 const good = { sentences, rubric: 'Must include: claim, evidence, counterargument, conclusion' };
 const reply = {
   cards: [
-    { start: 1, end: 2, title: 'Hook and claim', points: ['Claim'] },
+    { start: 1, end: 1, title: 'Greeting', points: [] },
+    { start: 2, end: 2, title: 'Main claim', points: ['Claim'] },
     { start: 3, end: 3, title: 'Sleep research', points: ['Evidence'] },
     { start: 4, end: 5, title: 'Counterargument and close', points: ['Counterargument', 'Conclusion'] },
   ],
@@ -63,7 +64,11 @@ describe('POST /api/setup', () => {
     expect(sent.generationConfig.temperature).toBe(0.2);
     expect(sent.generationConfig.responseJsonSchema.required).toEqual(['cards', 'points']);
     const prompt: string = sent.contents[0].parts[0].text;
-    expect(prompt).toContain('3. Teens need 8.5 hours of sleep.');
+    expect(prompt).toContain('3. (6 words) Teens need 8.5 hours of sleep.');
+    expect(prompt).toContain('Make at least 1 cards');
+    expect(prompt).toContain('Tag a card with a point ONLY if that card itself states the point');
+    expect(prompt).toContain('greetings and introductions, hooks, personal stories');
+    expect(fetchMock).toHaveBeenCalledTimes(1); // a good answer needs no retry
     expect(prompt).toContain('Must include: claim, evidence, counterargument, conclusion');
     expect(prompt).toContain('Never rewrite');
     expect(prompt).toContain('cover every sentence from 1 to 5');
@@ -138,5 +143,113 @@ describe('POST /api/setup', () => {
   it('rejects GET', async () => {
     const res = await setupPOST(new Request('http://localhost/api/setup'));
     expect(res.status).toBe(405);
+  });
+});
+
+
+/* ---------- Checking the answer and retrying once ---------- */
+
+/** 13 sentences of 20 words: 260 words, so at least 5 cards. */
+const longSentences = Array.from({ length: 13 }, (_, i) => `Sentence ${i + 1} ` + Array.from({ length: 18 }, () => 'word').join(' ') + '.');
+const longInput = { sentences: longSentences, rubric: 'Must include: claim, evidence, counterargument, conclusion' };
+const grouping = (ranges: [number, number][], tagged: boolean[]) => ({
+  cards: ranges.map(([start, end], i) => ({ start, end, title: `Card ${i + 1}`, points: tagged[i] ? ['Claim'] : [] })),
+  points: ['Claim', 'Evidence', 'Counterargument', 'Conclusion'],
+});
+const twoCards = grouping([[1, 6], [7, 13]], [true, false]);
+const fiveCards = grouping([[1, 2], [3, 5], [6, 8], [9, 11], [12, 13]], [false, true, true, true, true]);
+const fiveAllTagged = grouping([[1, 2], [3, 5], [6, 8], [9, 11], [12, 13]], [true, true, true, true, true]);
+const promptOf = (i: number) => JSON.parse((fetchMock.mock.calls[i][1] as RequestInit).body as string).contents[0].parts[0].text as string;
+
+describe('setup answer checks', () => {
+  it('works out the minimum number of cards: words ÷ 60, rounded up, 1 to 12', () => {
+    expect(minCards(longSentences)).toBe(5); // 260 words
+    expect(minCards(['Hi there.'])).toBe(1);
+    expect(minCards(Array.from({ length: 40 }, () => Array.from({ length: 30 }, () => 'w').join(' ')))).toBe(12); // 1,200 words
+    expect(minCards(['one two three four five six seven', Array.from({ length: 200 }, () => 'w').join(' ')])).toBe(2); // capped at the sentence count
+  });
+
+  it('spots too few cards, every card tagged, and broken ranges', () => {
+    expect(setupProblems(fiveCards, longInput)).toEqual([]);
+    expect(setupProblems(twoCards, longInput).join(' ')).toContain('make at least 5');
+    expect(setupProblems(fiveAllTagged, longInput)[0]).toContain('Every card is tagged');
+    expect(setupProblems(grouping([[1, 2], [4, 13]], [false, true]), longInput)[0]).toContain('no gaps');
+    expect(setupProblems(fiveAllTagged, { ...longInput, rubric: '' })).toEqual([]); // no rubric: tags don't matter
+    // 5 cards, but card 2 holds sentences 3-7 (100 words): too big
+    expect(setupProblems(grouping([[1, 2], [3, 7], [8, 9], [10, 11], [12, 13]], [false, true, true, true, true]), longInput)[0]).toContain('Card 2 has 100 words');
+    // one long sentence on its own is fine
+    expect(setupProblems(grouping([[1, 1]], [false]), { sentences: [Array.from({ length: 95 }, () => 'w').join(' ')], rubric: '' })).toEqual([]);
+    // 60 words over 3 sentences is within the limit; 80 words over 4 is not
+    expect(setupProblems(grouping([[1, 3], [4, 4], [5, 5], [6, 6], [7, 13]], [false, true, true, true, false]), longInput).join(' ')).toContain('Card 5 has 140 words');
+    expect(setupProblems(grouping([[1, 3], [4, 6], [7, 9], [10, 11], [12, 13]], [false, true, true, true, true]), longInput)).toEqual([]);
+  });
+});
+
+describe('POST /api/setup retries once', () => {
+  it('retries with a correction when there are too few cards, and uses the corrected answer', async () => {
+    fetchMock.mockResolvedValueOnce(geminiJson(twoCards)).mockResolvedValueOnce(geminiJson(fiveCards));
+    const { status, body, trace } = await call(req(longInput));
+    expect(status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(body).toEqual({ ...fiveCards, retried: true });
+    expect(promptOf(1)).toContain('Your previous answer needs fixing');
+    expect(promptOf(1)).toContain('You made 2 cards; make at least 5');
+    expect(trace).toMatch(/^gemini-3\.5-flash-lite 200 \d+ms, retry gemini-3\.5-flash-lite 200 \d+ms$/);
+  });
+
+  it('retries when a card is far over the size limit', async () => {
+    const tooBig = grouping([[1, 2], [3, 7], [8, 9], [10, 11], [12, 13]], [false, true, true, true, true]);
+    fetchMock.mockResolvedValueOnce(geminiJson(tooBig)).mockResolvedValueOnce(geminiJson(fiveCards));
+    const { body } = await call(req(longInput));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(promptOf(1)).toContain('Card 2 has 100 words');
+    expect(body).toEqual({ ...fiveCards, retried: true });
+  });
+
+  it('retries when every card is tagged', async () => {
+    fetchMock.mockResolvedValueOnce(geminiJson(fiveAllTagged)).mockResolvedValueOnce(geminiJson(fiveCards));
+    const { body } = await call(req(longInput));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(promptOf(1)).toContain('Every card is tagged');
+    expect(body).toEqual({ ...fiveCards, retried: true });
+  });
+
+  it('uses the AI answer anyway when the retry is still wrong (only one retry)', async () => {
+    fetchMock.mockResolvedValue(geminiJson(twoCards));
+    const { status, body } = await call(req(longInput));
+    expect(status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((body.cards as unknown[]).length).toBe(2);
+  });
+
+  it('keeps the first answer when the retry is worse', async () => {
+    const worse = grouping([[1, 6], [7, 13]], [true, true]); // too few cards AND every card tagged
+    fetchMock.mockResolvedValueOnce(geminiJson(fiveAllTagged)).mockResolvedValueOnce(geminiJson(worse));
+    const { body } = await call(req(longInput));
+    expect(body).toEqual(fiveAllTagged);
+  });
+
+  it('keeps the first answer when the retry fails', async () => {
+    fetchMock
+      .mockResolvedValueOnce(geminiJson(twoCards))
+      .mockResolvedValueOnce(new Response('{}', { status: 503 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 503 }));
+    const { status, body, trace } = await call(req(longInput));
+    expect(status).toBe(200);
+    expect(body).toEqual(twoCards);
+    expect(trace).toContain('retry gemini-3.5-flash-lite 503');
+  });
+
+  it('does not retry a malformed answer (the browser falls back to paragraphs)', async () => {
+    fetchMock.mockResolvedValue(geminiJson({ cards: [], points: [] }));
+    const { status } = await call(req(longInput));
+    expect(status).toBe(502);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends the low temperature on both tries', async () => {
+    fetchMock.mockResolvedValueOnce(geminiJson(twoCards)).mockResolvedValueOnce(geminiJson(fiveCards));
+    await call(req(longInput));
+    for (const i of [0, 1]) expect(JSON.parse((fetchMock.mock.calls[i][1] as RequestInit).body as string).generationConfig.temperature).toBe(0.2);
   });
 });

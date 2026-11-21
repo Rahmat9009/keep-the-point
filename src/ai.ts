@@ -59,8 +59,8 @@ async function post(url: string, body: unknown, unavailable: string, fetchImpl: 
 /* ---------- Smart setup ---------- */
 
 export const SETUP_UNAVAILABLE = 'AI unavailable.';
-/** The setup route may take up to 16s on the server (it groups a whole script). */
-export const SETUP_CLIENT_TIMEOUT_MS = 20_000;
+/** The setup route may take up to 18s on the server (it groups a whole script and may retry once). */
+export const SETUP_CLIENT_TIMEOUT_MS = 22_000;
 
 export interface SetupRequest {
   sentences: string[];
