@@ -48,8 +48,8 @@ export const LONG_WINDOW = 3;
 /** The whole-talk line calls a difference smaller than this "about right". */
 export const TENDENCY_MIN_SECONDS = 3;
 
-export function makeRun(kind: RunKind, cards: RunCard[], at: number): PracticeRun {
-  return { kind, at, cards, totalSeconds: cards.reduce((t, c) => t + c.actual, 0) };
+export function makeRun(kind: RunKind, cards: RunCard[], at: number, handoffSeconds = 0): PracticeRun {
+  return { kind, at, cards, totalSeconds: cards.reduce((t, c) => t + c.actual, handoffSeconds) };
 }
 
 /** Add a run, keeping the last 5. A real run replaces any sample runs. */

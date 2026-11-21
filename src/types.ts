@@ -3,6 +3,8 @@ export interface Card {
   id: string;
   /** Optional short name for lists, cut markers and cue card headers. Falls back to the first few words of `text`. */
   title?: string;
+  /** Speaker's name for group presentations. */
+  speaker?: string;
   /** What the student actually says. */
   text: string;
   /** How long the card takes to say, in seconds. */
@@ -31,6 +33,7 @@ export interface Talk {
   title: string;
   cards: Card[];
   requiredPoints: string[];
+  groupMode?: boolean;
   /** Bridge lines for cut gaps, keyed by gapKey() (see cues.ts). */
   bridges?: Record<string, string>;
 }

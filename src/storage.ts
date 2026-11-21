@@ -1,5 +1,6 @@
 import { HISTORY_LIMIT, type PracticeRun, type RunCard, type RunKind } from './insights';
 import type { Card, Talk } from './types';
+import { speakerName } from './group';
 
 export const STORAGE_KEY = 'keep-the-point:v1';
 /** Longest card title kept when loading. */
@@ -82,6 +83,8 @@ export function parseSavedState(data: unknown): SavedState | null {
       card.priority = c.priority;
     }
     if (c.estimated === true) card.estimated = true;
+    const speaker = isString(c.speaker) ? speakerName(c.speaker, cards) : undefined;
+    if (speaker) card.speaker = speaker;
     if (isString(c.title) && c.title.trim() && c.title.length <= MAX_TITLE) card.title = c.title;
     const sh = c.short;
     if (isObject(sh) && isString(sh.text) && sh.text.trim() && typeof sh.seconds === 'number' && Number.isFinite(sh.seconds) && sh.seconds >= 1) {
@@ -99,7 +102,7 @@ export function parseSavedState(data: unknown): SavedState | null {
   }
 
   return {
-    talk: { title: isString(t.title) && t.title.trim() ? t.title : 'My talk', cards, requiredPoints, ...(Object.keys(bridges).length ? { bridges } : {}) },
+    talk: { title: isString(t.title) && t.title.trim() ? t.title : 'My talk', cards, requiredPoints, ...(t.groupMode === true ? { groupMode: true } : {}), ...(Object.keys(bridges).length ? { bridges } : {}) },
     limit: isString(data.limit) ? data.limit : '2:00',
     ...(Array.isArray(data.history) ? { history: parseHistory(data.history) } : {}),
   };

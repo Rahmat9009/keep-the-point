@@ -15,6 +15,8 @@ import { cardTimeLabel, summarize, type Summary } from './summary';
 import { addPoint, emptyTalk, moveCard, removePoint } from './talk';
 import { formatTime, parseTime } from './time';
 import type { Card } from './types';
+import { MAX_SPEAKER_NAME, speakerName, speakerTimes } from './group';
+import { speakerTimesHtml } from './groupView';
 
 const DEFAULT_LIMIT = '2:00';
 const MAX_SECONDS = 3600;
@@ -102,6 +104,16 @@ app.innerHTML = `
         </aside>
       </div>
 
+      <details class="outline group-settings" ${state.talk.groupMode ? 'open' : ''}>
+        <summary>Group presentation</summary>
+        <label class="check"><input id="group-mode" type="checkbox" aria-controls="group-options" /> Assign speakers to cards</label>
+        <div id="group-options" hidden>
+          <p class="hint">Enter a speaker for each card. The whole team shares the time limit, including handoffs.</p>
+          <div id="group-speakers"></div>
+          <datalist id="speaker-names"></datalist>
+          <div id="group-plan"></div>
+        </div>
+      </details>
       <ol id="rows" class="rows"></ol>
       <p id="no-cards" class="empty" hidden>No cards yet. Paste an outline below, load the sample talk, or add a card.</p>
 
@@ -176,6 +188,11 @@ const pointForm = $<HTMLFormElement>('#point-form');
 const pointName = $<HTMLInputElement>('#point-name');
 const pointError = $('#point-error');
 const rowsEl = $('#rows');
+const groupModeInput = $<HTMLInputElement>('#group-mode');
+const groupOptions = $('#group-options');
+const groupSpeakers = $('#group-speakers');
+const groupPlan = $('#group-plan');
+const speakerNames = $('#speaker-names');
 const noCards = $('#no-cards');
 const cardCount = $('#card-count');
 const rehearseFull = $<HTMLButtonElement>('#rehearse-full');
@@ -213,7 +230,11 @@ let lastSummary: Summary | null = null;
 function changed(structural: boolean) {
   const budget = parseTime(state.limit);
   const summary = budget === null ? null : summarize(state.talk.cards, state.talk.requiredPoints, budget);
-  if (structural) renderEditor(summary ?? lastSummary);
+  if (structural) {
+    renderEditor(summary ?? lastSummary);
+    renderGroupFields();
+  }
+  renderGroupPlan(summary);
   renderResults(summary, budget);
   saveState(state);
 }
@@ -493,6 +514,60 @@ pointList.addEventListener('click', (e) => {
   changed(true);
   pointName.focus();
 });
+
+/* ---------- Group presentation ---------- */
+
+groupModeInput.addEventListener('change', () => {
+  if (groupModeInput.checked) state.talk.groupMode = true;
+  else delete state.talk.groupMode;
+  changed(true);
+});
+
+groupSpeakers.addEventListener('change', (event) => {
+  const input = event.target as HTMLInputElement;
+  const card = input.dataset.speakerCard ? cardById(input.dataset.speakerCard) : undefined;
+  if (!card) return;
+  const value = speakerName(input.value, state.talk.cards.filter((other) => other !== card));
+  if (value) card.speaker = value;
+  else delete card.speaker;
+  input.value = value ?? '';
+  changed(false);
+});
+
+function renderGroupFields() {
+  const enabled = state.talk.groupMode === true;
+  groupModeInput.checked = enabled;
+  groupOptions.hidden = !enabled;
+  groupSpeakers.innerHTML = enabled ? state.talk.cards.map((card, i) => `
+    <label class="group-speaker">
+      <span data-speaker-title>${i + 1}. ${esc(cardTitle(card) || '(empty card)')}</span>
+      <input type="text" autocomplete="off" list="speaker-names" maxlength="${MAX_SPEAKER_NAME}"
+        data-speaker-card="${esc(card.id)}" value="${esc(card.speaker ?? '')}" placeholder="Speaker name" />
+    </label>`).join('') : '';
+}
+
+function renderGroupPlan(summary: Summary | null) {
+  if (!state.talk.groupMode) return;
+  const cards = state.talk.cards;
+  groupSpeakers.querySelectorAll('[data-speaker-title]').forEach((label, index) => {
+    const card = cards[index];
+    if (card) label.textContent = `${index + 1}. ${cardTitle(card) || '(empty card)'}`;
+  });
+  const names = new Set(cards.flatMap((card) => card.speaker ? [card.speaker] : []));
+  speakerNames.innerHTML = [...names].map((name) => `<option value="${esc(name)}"></option>`).join('');
+  if (!cards.length) {
+    groupPlan.innerHTML = '<p class="hint">Add a card to assign a speaker.</p>';
+    return;
+  }
+  const result = summary?.result;
+  if (!result?.fits) {
+    groupPlan.innerHTML = '<p class="hint">Fit the talk to a valid time limit to see each speaker’s planned time.</p>';
+    return;
+  }
+  const kept = new Set(result.kept.map((card) => card.id));
+  const planned = speakerTimes(cards, (card) => kept.has(card.id) ? spokenCard(card, result.shortIds).seconds : 0);
+  groupPlan.innerHTML = speakerTimesHtml(planned) + '<p class="hint">Planned time comes from the selected cue cards. Rehearsal measures handoffs separately.</p>';
+}
 
 /* ---------- Card rows ---------- */
 
@@ -819,13 +894,14 @@ function startRehearsal(kind: RunKind, label: string, cards: Card[], trigger: HT
     talk: structuredClone(state.talk),
     shortIds,
     limitSeconds: limit,
-    onComplete(measured) {
+    onComplete(measured, handoffSeconds) {
       recordRun(
         kind,
         spoken.map((c) => {
           const short = shortIds.includes(c.id) && !!c.short;
           return { id: c.id, planned: c.seconds, actual: measured.get(c.id) ?? 0, ...(short ? { short: true } : {}) };
         }),
+        handoffSeconds,
       );
     },
     onSave(measured) {
@@ -891,7 +967,7 @@ presentLive.addEventListener('click', () => {
   openLive({
     talk: structuredClone(state.talk),
     limitSeconds: limit,
-    onComplete(measured) {
+    onComplete(measured, handoffSeconds) {
       const runCards: RunCard[] = [];
       for (const [id, m] of measured) {
         const card = cardById(id);
@@ -899,7 +975,7 @@ presentLive.addEventListener('click', () => {
         const short = m.short && !!card.short;
         runCards.push({ id, planned: short ? card.short!.seconds : card.seconds, actual: m.seconds, ...(short ? { short: true } : {}) });
       }
-      recordRun('live', runCards);
+      recordRun('live', runCards, handoffSeconds);
     },
     onSave(measured) {
       for (const card of state.talk.cards) {
@@ -922,9 +998,9 @@ presentLive.addEventListener('click', () => {
 /* ---------- Practice insights ---------- */
 
 /** Every finished run goes into the history, even when its times are discarded. */
-function recordRun(kind: RunKind, cards: RunCard[]) {
+function recordRun(kind: RunKind, cards: RunCard[], handoffSeconds: number) {
   if (!cards.length) return;
-  state.history = addRun(state.history ?? [], makeRun(kind, cards, Date.now()));
+  state.history = addRun(state.history ?? [], makeRun(kind, cards, Date.now(), handoffSeconds));
   saveState(state);
   renderInsights();
 }
@@ -972,15 +1048,17 @@ insightsBody.addEventListener('click', (e) => {
 function updateRehearseButtons(fits: boolean, limitValid: boolean) {
   const cards = state.talk.cards;
   rehearseFull.disabled = cards.length === 0 || !limitValid;
-  presentLive.disabled = cards.length === 0 || cards.length > MAX_CARDS || !limitValid;
+  presentLive.disabled = cards.length === 0 || cards.length > MAX_CARDS || !limitValid || (fits && !shortenedCards?.length);
   rehearseShort.disabled = !fits || !shortenedCards?.length;
   openCuesBtn.disabled = rehearseShort.disabled;
   rehearseNote.textContent =
-    cards.length === 0 || !limitValid || fits
-      ? ''
-      : cards.length > MAX_CARDS
-        ? 'Cue cards, shortened rehearsal and Present live need 12 cards or fewer.'
-        : 'Shortened rehearsal and cue cards are available once the talk can fit the time limit.';
+    fits && cards.length > 0 && !shortenedCards?.length
+      ? 'The current time limit leaves no cards to present.'
+      : cards.length === 0 || !limitValid || fits
+        ? ''
+        : cards.length > MAX_CARDS
+          ? 'Cue cards, shortened rehearsal and Present live need 12 cards or fewer.'
+          : 'Shortened rehearsal and cue cards are available once the talk can fit the time limit.';
 }
 
 /* ---------- Rendering ---------- */
@@ -1066,6 +1144,7 @@ function viewHtml(card: Card, i: number, st: CardState): string {
   return `
     <div class="card__view">
       <h3 class="card__title"><button type="button" class="card__open" data-action="edit" aria-expanded="false" aria-label="Edit card ${i + 1}: ${esc(title || 'empty card')}">${esc(title) || '(empty card)'}</button></h3>
+      ${state.talk.groupMode && card.speaker ? `<p class="hint card__speaker">${esc(card.speaker)}</p>` : ''}
       ${body}
       ${extra}
     </div>`;

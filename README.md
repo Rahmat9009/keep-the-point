@@ -15,6 +15,7 @@ Keep the Point helps students fit a presentation into a time limit while coverin
 - **AI shorten and bridge lines.** Ask for a shorter version of a card or a line that connects the cards around a cut. Review each suggestion before using it.
 - **Live pacing.** See your time left, the projected finish, and updates to your remaining cards as you speak.
 - **Practice insights.** Compare recent rehearsals and spot cards that keep running long.
+- **Group presentations.** Open Group presentation under Your talk, enable speaker assignments, and enter a name for each card. See planned time by speaker and carry those names into cue cards and print. Rehearsal and Present live use the team's shared clock. At a handoff, advance once to start the transition and again when the next speaker is ready. The summary shows speaking times and handoffs separately.
 
 ## How it works
 
@@ -22,7 +23,7 @@ The app runs an exact search over full, short, and cut options for every card, h
 
 ## Tech stack and privacy
 
-Vite and TypeScript power the app, Vercel Functions serve AI requests, and Vitest runs 212 tests. Talks and practice history are saved in your browser. When you use an AI feature, the text needed for that request is sent to Google Gemini.
+Vite and TypeScript power the app, Vercel Functions serve AI requests, and Vitest runs the automated tests. Talks and practice history are saved in your browser. When you use an AI feature, the text needed for that request is sent to Google Gemini.
 
 **Run locally.** Use `npm install`, optionally set `GEMINI_API_KEY=your-key` in `.env.local` for AI features, then run `npm run dev`.
 
