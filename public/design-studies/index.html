@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Design studies · Keep the Point</title>
+<link rel="stylesheet" href="shared/study.css" />
+<style>
+  .wrap { max-width: 1560px; }
+  .cols3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin-top: 28px; }
+  .col { display: flex; flex-direction: column; gap: 12px; }
+  .col h2 { margin: 0; font-size: 1.4rem; }
+  .col h2 a { color: inherit; text-decoration-thickness: 2px; text-underline-offset: 4px; }
+  .col .one { margin: 0; color: var(--muted); min-height: 6em; }
+  .phones { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .phones figcaption { font-size: 0.78rem; }
+  .phone[data-frame] { border-width: 4px; border-radius: 16px; }
+  .open { font-weight: 650; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-size: 0.95rem; }
+  th, td { padding: 10px 14px; text-align: left; vertical-align: top; border-top: 1px solid var(--line); }
+  thead th { border-top: 0; background: #eef0f4; }
+  tbody th { width: 170px; font-weight: 650; }
+  .table-wrap { overflow-x: auto; }
+  @media (max-width: 1000px) { .cols3 { grid-template-columns: minmax(0, 1fr); } .col .one { min-height: 0; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="study-head">
+    <h1>Keep the Point: three visual directions</h1>
+    <p class="pitch">Each direction shows the same real sample talk at 1:45 (2:38 → 1:42, one card shortened, one cut). The sliders in every preview work: each 5-second step uses the app's real selection result. Open a study for the cue cards, states, type, colour, motion and cost.</p>
+  </header>
+
+  <div class="cols3">
+    <section class="col" aria-labelledby="a-h">
+      <h2 id="a-h"><a href="a-tape/">A: Tape measure</a></h2>
+      <p class="one">Time as a length. The talk sits on a yellow ruler and you drag a red limit line; anything past it hangs off the end.</p>
+      <figure><div data-frame="a-tape/screen.html" data-w="1440" data-h="1000" data-title="Study A main screen, desktop"></div><figcaption>Main screen, desktop</figcaption></figure>
+      <div class="phones">
+        <figure><div class="phone" data-frame="a-tape/screen.html" data-w="390" data-h="844" data-title="Study A main, phone"></div><figcaption>Main</figcaption></figure>
+        <figure><div class="phone" data-frame="a-tape/screen.html?view=cues" data-w="390" data-h="844" data-title="Study A cue cards, phone"></div><figcaption>Cue cards</figcaption></figure>
+        <figure><div class="phone" data-frame="a-tape/screen.html?state=nofit" data-w="390" data-h="844" data-title="Study A can't fit, phone"></div><figcaption>Can't fit</figcaption></figure>
+      </div>
+      <p><span class="cost">Cost: medium</span> <a class="open" href="a-tape/">Open study A</a></p>
+    </section>
+
+    <section class="col" aria-labelledby="b-h">
+      <h2 id="b-h"><a href="b-notebook/">B: Highlighter notebook</a></h2>
+      <p class="one">Your talk is the page. One list, marked like study notes: pink strike for cut, yellow highlight for the short version, reasons in the margin.</p>
+      <figure><div data-frame="b-notebook/screen.html" data-w="1440" data-h="1000" data-title="Study B main screen, desktop"></div><figcaption>Main screen, desktop</figcaption></figure>
+      <div class="phones">
+        <figure><div class="phone" data-frame="b-notebook/screen.html" data-w="390" data-h="844" data-title="Study B main, phone"></div><figcaption>Main</figcaption></figure>
+        <figure><div class="phone" data-frame="b-notebook/screen.html?view=cues" data-w="390" data-h="844" data-title="Study B cue cards, phone"></div><figcaption>Cue cards</figcaption></figure>
+        <figure><div class="phone" data-frame="b-notebook/screen.html?state=nofit" data-w="390" data-h="844" data-title="Study B can't fit, phone"></div><figcaption>Can't fit</figcaption></figure>
+      </div>
+      <p><span class="cost">Cost: low to medium</span> <a class="open" href="b-notebook/">Open study B</a></p>
+    </section>
+
+    <section class="col" aria-labelledby="c-h">
+      <h2 id="c-h"><a href="c-dial/">C: Dial</a></h2>
+      <p class="one">A calm night-blue focus timer. Turn a ring of card arcs down to your limit; a run of show says when each card starts.</p>
+      <figure><div data-frame="c-dial/screen.html" data-w="1440" data-h="1000" data-title="Study C main screen, desktop"></div><figcaption>Main screen, desktop</figcaption></figure>
+      <div class="phones">
+        <figure><div class="phone" data-frame="c-dial/screen.html" data-w="390" data-h="844" data-title="Study C main, phone"></div><figcaption>Main</figcaption></figure>
+        <figure><div class="phone" data-frame="c-dial/screen.html?view=cues" data-w="390" data-h="844" data-title="Study C cue cards, phone"></div><figcaption>Cue cards</figcaption></figure>
+        <figure><div class="phone" data-frame="c-dial/screen.html?state=nofit" data-w="390" data-h="844" data-title="Study C can't fit, phone"></div><figcaption>Can't fit</figcaption></figure>
+      </div>
+      <p><span class="cost">Cost: high</span> <a class="open" href="c-dial/">Open study C</a></p>
+    </section>
+  </div>
+
+  <h2>Side by side</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th scope="col"></th><th scope="col">A: Tape measure</th><th scope="col">B: Highlighter notebook</th><th scope="col">C: Dial</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Hero</th><td>Ruler with two lanes (full talk, what fits) and a draggable red limit line</td><td>"2:38 → 1:42" set huge, the old time struck in pink and the new one highlighted, over a fat highlighter slider</td><td>Circular dial of card arcs with a handle; the time sits in the centre</td></tr>
+        <tr><th scope="row">Layout</th><td>Full-width hero band, then results and side panel, then a two-column editor</td><td>One centred column with a number gutter and a margin for notes; results and editor are one list</td><td>Fixed left pane with the dial; scrolling right pane with run of show and editor drawers</td></tr>
+        <tr><th scope="row">Phone</th><td>Same order, compact tape that shows card numbers only</td><td>The time control sticks to the top while you read the talk</td><td>Smaller dial, plus a slider dock fixed at the bottom</td></tr>
+        <tr><th scope="row">Type</th><td>Barlow Condensed and Barlow</td><td>Bricolage Grotesque and Atkinson Hyperlegible Next</td><td>Sora only</td></tr>
+        <tr><th scope="row">Palette</th><td>Cool grey, graphite, tape yellow, signal red, blue</td><td>White dot-grid paper, navy ink, yellow and pink highlighter</td><td>Night blue, peach, lilac, coral</td></tr>
+        <tr><th scope="row">Cue cards</th><td>Ticket stubs with a time bar</td><td>Ruled index cards, washi-tape cut marker, sticky-note total</td><td>Large cards with start times in the margin</td></tr>
+        <tr><th scope="row">Print</th><td>Easy: already high contrast</td><td>Easiest: the screen design is the print design</td><td>Needs a separate light print theme</td></tr>
+        <tr><th scope="row">Best at</th><td>Showing "too long" at a glance</td><td>Calm, readable, feels like the student's own notes</td><td>The wow moment in a demo</td></tr>
+        <tr><th scope="row">Cost</th><td>Medium</td><td>Low to medium</td><td>High</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="margin-top:28px;color:var(--muted)">These are static studies in <code>public/design-studies/</code>. They don't change the app. Fonts are free Google Fonts. The capybara appears in every direction.</p>
+</div>
+<script src="shared/frame.js"></script>
+</body>
+</html>

@@ -1,0 +1,229 @@
+/* Study A · Tape measure. Time is a length you can see and drag. */
+:root {
+  --paper: #e9ecef;
+  --surface: #ffffff;
+  --ink: #1f2328;
+  --muted: #545b64;
+  --rule: #c9ced4;
+  --tape: #f6c945;
+  --tape-ink: #3a2f05;
+  --block: #2e3440;
+  --short: #1f5fad;
+  --cut: #b3261e;
+  --cut-bg: #fbe9e7;
+  --focus: #1f5fad;
+  --cond: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  font-family: 'Barlow', system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--ink);
+  background: var(--paper);
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--paper); }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1; }
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.page { max-width: 1360px; margin: 0 auto; padding: 28px 40px 64px; }
+
+/* Header: the wordmark is the loudest text; the talk title is a quiet caption to the right. */
+.top { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 32px; }
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand h1 { margin: 0; font-family: var(--cond); font-weight: 800; font-size: 2.75rem; line-height: 1; letter-spacing: -0.01em; }
+.brand .capy { width: 64px; height: auto; flex: none; }
+.talk-title { margin: 0; max-width: 46ch; font-size: 1rem; color: var(--muted); text-align: right; }
+.how { display: flex; flex-wrap: wrap; gap: 4px 22px; margin: 14px 0 0; padding: 0; list-style: none; font-weight: 600; font-size: 0.95rem; }
+.how li { display: flex; align-items: center; gap: 8px; }
+.how b {
+  display: inline-grid; place-items: center; width: 1.6em; height: 1.6em; border-radius: 50%;
+  background: var(--ink); color: var(--paper); font-family: var(--cond); font-size: 0.9rem;
+}
+
+/* Hero: summary numbers above the tape. */
+.hero { margin-top: 22px; padding: 22px 28px 18px; background: var(--surface); border-radius: 6px; box-shadow: 0 1px 0 var(--rule); }
+.readout { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; }
+.big { margin: 0; font-family: var(--cond); font-weight: 700; font-size: 5.5rem; line-height: 0.95; letter-spacing: -0.01em; white-space: nowrap; }
+.big .arrow { font-weight: 500; color: var(--muted); padding: 0 0.12em; }
+.big--bad { color: var(--cut); font-size: 3.6rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.chips li { padding: 3px 12px; border: 1.5px solid var(--ink); border-radius: 3px; font-weight: 600; font-size: 0.95rem; }
+.chips .c-short { border-color: var(--short); color: var(--short); }
+.chips .c-cut { border-color: var(--cut); color: var(--cut); }
+.limit { margin-left: auto; display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.limit input {
+  width: 3.4em; padding: 4px 6px; font-family: var(--cond); font-size: 1.6rem; font-weight: 700; text-align: center;
+  border: 2px solid var(--ink); border-radius: 4px; background: var(--surface);
+}
+.nofit-note { margin: 6px 0 0; color: var(--cut); font-weight: 600; }
+
+/* The tape: two rows of blocks, a ruler, and a draggable red limit line. */
+.tape { position: relative; margin-top: 18px; padding-top: 4px; }
+.lane { display: grid; grid-template-columns: 92px minmax(0, 1fr); align-items: center; gap: 12px; margin-bottom: 6px; }
+.lane__label { font-size: 0.85rem; font-weight: 600; color: var(--muted); text-align: right; }
+.blocks { position: relative; display: flex; height: 40px; gap: 2px; }
+.blk {
+  flex: none; overflow: hidden; display: flex; align-items: center; gap: 6px; padding: 0 8px;
+  background: var(--block); color: #fff; border-radius: 3px; font-size: 0.85rem; font-weight: 600; white-space: nowrap;
+  transition: width 220ms cubic-bezier(.2,.7,.2,1), opacity 180ms;
+}
+.blk b { font-family: var(--cond); font-size: 1rem; }
+.blk span { overflow: hidden; text-overflow: ellipsis; }
+.blk--short { background: var(--short); }
+.blk--cut {
+  background: repeating-linear-gradient(135deg, var(--cut-bg) 0 6px, #f6d3cf 6px 9px);
+  color: #8e1c16; box-shadow: inset 0 0 0 1.5px #d98880;
+}
+.blk--cut span { text-decoration: line-through; }
+.blk--over { background: var(--cut); }
+.ruler { position: relative; margin-left: 104px; height: 44px; background: var(--tape); border-radius: 2px; color: var(--tape-ink); }
+.tick { position: absolute; top: 0; width: 1px; height: 9px; background: var(--tape-ink); }
+.tick--mid { height: 14px; }
+.tick--major { height: 20px; width: 1.5px; }
+.tick-label { position: absolute; top: 20px; transform: translateX(-50%); font-family: var(--cond); font-weight: 600; font-size: 0.9rem; }
+.track { position: absolute; left: 104px; right: 0; top: 0; bottom: 0; pointer-events: none; }
+.limit-line { position: absolute; top: -6px; bottom: 0; width: 3px; margin-left: -1.5px; background: var(--cut); transition: left 120ms; }
+.limit-line::after {
+  content: attr(data-time); position: absolute; top: -26px; left: 50%; transform: translateX(-50%);
+  padding: 1px 8px; border-radius: 3px; background: var(--cut); color: #fff; font-family: var(--cond); font-weight: 700; font-size: 1rem;
+}
+/* Real range input laid over the ruler so dragging, keyboard and screen readers all work. */
+.range {
+  position: absolute; bottom: 0; height: 44px; margin: 0; pointer-events: auto; background: transparent; cursor: ew-resize;
+  left: calc(30 / 170 * 100% - 12px); width: calc(130 / 170 * 100% + 24px);
+  -webkit-appearance: none; appearance: none;
+}
+.range::-webkit-slider-runnable-track { height: 44px; background: transparent; }
+.range::-moz-range-track { height: 44px; background: transparent; }
+.range::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 24px; height: 44px; border-radius: 4px; border: 0;
+  background: linear-gradient(90deg, transparent 10px, rgba(255,255,255,.9) 10px 11px, transparent 11px 13px, rgba(255,255,255,.9) 13px 14px, transparent 14px), var(--cut);
+  box-shadow: 0 2px 6px rgba(80, 10, 5, 0.35);
+}
+.range::-moz-range-thumb {
+  width: 24px; height: 44px; border-radius: 4px; border: 0;
+  background: linear-gradient(90deg, transparent 10px, rgba(255,255,255,.9) 10px 11px, transparent 11px 13px, rgba(255,255,255,.9) 13px 14px, transparent 14px), var(--cut);
+}
+.range:focus-visible { outline: none; }
+.range:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--focus); }
+.range:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--focus); }
+.hint { margin: 10px 0 0 104px; font-size: 0.9rem; color: var(--muted); }
+.hint strong { color: var(--ink); }
+
+/* Results + side panel */
+.cols { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 28px; margin-top: 28px; align-items: start; }
+h2 { margin: 0 0 10px; font-family: var(--cond); font-weight: 700; font-size: 1.6rem; line-height: 1.1; }
+.list { margin: 0; padding: 0; list-style: none; background: var(--surface); border-radius: 6px; }
+.item { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 4px 12px; padding: 12px 16px; border-top: 1px solid var(--paper); }
+.item:first-child { border-top: 0; }
+.item__n { font-family: var(--cond); font-weight: 700; font-size: 1.25rem; color: var(--muted); }
+.item__t { font-weight: 600; }
+.item__time { font-family: var(--cond); font-weight: 600; font-size: 1.15rem; text-align: right; }
+.item__meta { grid-column: 2 / 4; font-size: 0.875rem; color: var(--muted); }
+.tag { display: inline-block; margin-right: 8px; padding: 0 6px; border-radius: 2px; font-size: 0.78rem; font-weight: 700; }
+.tag--short { background: #e3ecf8; color: var(--short); }
+.tag--cut { background: var(--cut-bg); color: var(--cut); }
+.item--cut .item__t, .item--cut .item__time { text-decoration: line-through; color: var(--muted); }
+.item--short .item__time { color: var(--short); }
+.item__short { grid-column: 2 / 4; margin: 2px 0 0; padding-left: 10px; border-left: 3px solid var(--short); font-size: 0.92rem; }
+
+.side { display: flex; flex-direction: column; gap: 16px; }
+.panel { background: var(--surface); border-radius: 6px; padding: 16px 18px; }
+.cover { margin: 0; padding: 0; list-style: none; }
+.cover li { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-top: 1px solid var(--paper); font-size: 0.92rem; }
+.cover li:first-child { border-top: 0; }
+.cover .p { font-weight: 600; }
+.cover .by { color: var(--muted); text-align: right; }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn { padding: 9px 14px; border: 2px solid var(--ink); border-radius: 4px; background: var(--surface); font-weight: 600; cursor: pointer; }
+.btn--go { background: var(--ink); color: #fff; }
+.btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+.capy-foot { display: flex; align-items: center; gap: 10px; font-size: 0.85rem; color: var(--muted); }
+.capy-foot svg { width: 52px; height: auto; }
+
+/* Card editor */
+.editor { margin-top: 36px; }
+.ed-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 0; padding: 0; list-style: none; }
+.ed { background: var(--surface); border-radius: 6px; padding: 14px 16px; border-left: 4px solid var(--block); }
+.ed--short { border-left-color: var(--short); }
+.ed--cut { border-left-color: var(--cut); }
+.ed__top { display: flex; align-items: center; gap: 10px; }
+.ed__n { font-family: var(--cond); font-weight: 700; font-size: 1.3rem; width: 1.3em; }
+.ed input[type=text], .ed textarea, .ed select, .ed input[type=number] { border: 1.5px solid var(--rule); border-radius: 4px; padding: 6px 8px; background: #fff; }
+.ed__title { flex: 1; min-width: 0; font-weight: 600; }
+.ed__secs { display: flex; align-items: center; gap: 3px; color: var(--muted); }
+.ed__secs input { width: 4.2em; text-align: right; font-family: var(--cond); font-weight: 600; font-size: 1.05rem; }
+.ed textarea { display: block; width: 100%; margin-top: 8px; resize: vertical; line-height: 1.4; }
+.ed__row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 8px; font-size: 0.875rem; }
+.ed__row label { display: inline-flex; align-items: center; gap: 5px; }
+.ed__short { margin-top: 10px; padding: 8px 10px; background: #eef3fa; border-radius: 4px; font-size: 0.9rem; }
+.ed__short b { color: var(--short); }
+.ai { padding: 6px 12px; border: 1.5px solid var(--ink); border-radius: 4px; background: #fff; font-weight: 600; font-size: 0.875rem; cursor: pointer; }
+.ai[aria-busy=true] { display: inline-flex; align-items: center; gap: 8px; border-color: var(--short); color: var(--short); cursor: progress; }
+.spin { width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Cue cards: ticket stubs with a time strip. */
+.cues { display: grid; grid-template-columns: 260px minmax(0, 760px); gap: 40px; justify-content: center; margin-top: 26px; }
+.rail { position: sticky; top: 24px; align-self: start; }
+.rail .big { font-size: 4rem; color: var(--ink); }
+.rail p { margin: 6px 0 0; color: var(--muted); }
+.rail .btns { margin-top: 16px; }
+.stubs { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.stub { display: grid; grid-template-columns: 74px minmax(0, 1fr); background: var(--surface); border-radius: 6px; overflow: hidden; }
+.stub__n {
+  display: grid; place-items: center; background: var(--block); color: #fff;
+  font-family: var(--cond); font-weight: 800; font-size: 2.4rem; border-right: 2px dashed var(--paper);
+}
+.stub--short .stub__n { background: var(--short); }
+.stub__body { padding: 14px 18px 12px; }
+.stub__head { display: flex; align-items: baseline; gap: 12px; }
+.stub__title { margin: 0; flex: 1; font-family: var(--cond); font-weight: 700; font-size: 1.7rem; line-height: 1.1; }
+.stub__time { font-family: var(--cond); font-weight: 700; font-size: 1.35rem; }
+.stub__text { margin: 6px 0 0; font-size: 1.05rem; line-height: 1.5; max-width: 62ch; }
+.stub__bar { height: 6px; margin-top: 12px; background: var(--paper); border-radius: 3px; overflow: hidden; }
+.stub__bar i { display: block; height: 100%; background: var(--tape); }
+.stub__tags { margin-top: 8px; font-size: 0.82rem; font-weight: 600; color: var(--muted); }
+.bridge { margin: 0 0 6px; font-style: italic; color: var(--short); }
+.bridge small { font-style: normal; color: var(--muted); }
+.cutmark {
+  display: flex; align-items: center; gap: 10px; padding: 6px 0; color: var(--cut); font-weight: 600;
+}
+.cutmark::before, .cutmark::after { content: ''; flex: 1; border-top: 2px dashed var(--cut); }
+.total { margin-top: 18px; padding: 14px 18px; background: var(--tape); border-radius: 6px; color: var(--tape-ink); font-weight: 600; }
+.total b { font-family: var(--cond); font-size: 1.5rem; }
+
+/* Phone */
+@media (max-width: 760px) {
+  .page { padding: 18px 16px 48px; }
+  .brand h1 { font-size: 2.1rem; }
+  .brand .capy { width: 48px; }
+  .talk-title { text-align: left; font-size: 0.9rem; }
+  .how { gap: 4px 14px; font-size: 0.85rem; }
+  .hero { padding: 16px 14px 14px; margin-left: -4px; margin-right: -4px; }
+  .big { font-size: 3.6rem; }
+  .big--bad { font-size: 2.4rem; white-space: normal; }
+  .limit { margin-left: 0; }
+  .lane { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+  .lane__label { text-align: left; }
+  .blocks { height: 30px; gap: 1px; }
+  .blk { padding: 0 3px; font-size: 0.7rem; }
+  .blk span { display: none; }
+  .ruler, .hint { margin-left: 0; }
+  .track { left: 0; }
+  .tick-label.odd { display: none; }
+  .cols { grid-template-columns: minmax(0, 1fr); }
+  .ed-grid { grid-template-columns: minmax(0, 1fr); }
+  .cues { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .rail { position: static; }
+  .rail .big { font-size: 3rem; }
+  .stub { grid-template-columns: 48px minmax(0, 1fr); }
+  .stub__n { font-size: 1.6rem; }
+  .stub__title { font-size: 1.35rem; }
+  .stub__text { font-size: 0.98rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .blk, .limit-line { transition: none; }
+  .spin { animation-duration: 2.4s; }
+}

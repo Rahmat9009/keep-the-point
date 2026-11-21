@@ -1,0 +1,63 @@
+/* Neutral chrome for the study pages, so the three directions are judged on their own previews. */
+:root {
+  --ink: #16181d;
+  --muted: #555b66;
+  --line: #d9dce1;
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --focus: #1f5fd6;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+  line-height: 1.5;
+}
+body { margin: 0; background: var(--bg); }
+* { box-sizing: border-box; }
+a { color: var(--focus); }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 32px 24px 80px; }
+.crumb { margin: 0 0 20px; font-size: 0.9rem; }
+.study-head h1 { margin: 0; font-size: clamp(1.8rem, 4vw, 2.6rem); line-height: 1.1; }
+.study-head .pitch { margin: 10px 0 0; max-width: 68ch; font-size: 1.1rem; color: var(--muted); }
+h2 { margin: 48px 0 12px; font-size: 1.35rem; }
+h3 { margin: 0 0 8px; font-size: 1rem; }
+p, li { max-width: 72ch; }
+
+.previews { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr) minmax(0, 260px); align-items: start; }
+.previews + .previews { margin-top: 28px; }
+figure { margin: 0; }
+figcaption { margin-top: 6px; font-size: 0.85rem; color: var(--muted); }
+figcaption a { margin-left: 6px; }
+[data-frame] {
+  position: relative; overflow: hidden; background: #fff;
+  border: 1px solid var(--line); border-radius: 10px;
+}
+.phone[data-frame] { border-radius: 22px; border-width: 6px; border-color: #2a2d33; }
+[data-frame] iframe { position: absolute; top: 0; left: 0; border: 0; transform-origin: 0 0; }
+.states { display: grid; gap: 20px; grid-template-columns: repeat(auto-fill, minmax(220px, 260px)); }
+
+.grid2 { display: grid; gap: 20px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; }
+.panel ul { margin: 0; padding-left: 1.1em; }
+.panel li + li { margin-top: 6px; }
+.refs li strong { font-weight: 650; }
+
+.swatches { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); list-style: none; padding: 0; margin: 0; }
+.swatches li { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); font-size: 0.85rem; }
+.swatches .chip { height: 56px; }
+.swatches .meta { padding: 8px 10px; }
+.swatches code { font-size: 0.8rem; }
+
+.specimen { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 24px; overflow: hidden; }
+.specimen .row { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; align-items: baseline; padding: 12px 0; border-top: 1px solid var(--line); }
+.specimen .row:first-child { border-top: 0; }
+.specimen .what { font-size: 0.8rem; color: var(--muted); }
+.specimen .what span { display: block; }
+@media (max-width: 720px) {
+  .previews { grid-template-columns: minmax(0, 1fr); }
+  .previews .phone { max-width: 300px; }
+  .specimen .row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+}
+.verdict dt { font-weight: 650; margin-top: 10px; }
+.verdict dd { margin: 2px 0 0; }
+.cost { display: inline-block; padding: 2px 10px; border-radius: 999px; background: #e8ecf3; font-weight: 650; font-size: 0.9rem; }
