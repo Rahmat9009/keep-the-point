@@ -42,13 +42,13 @@ describe('selectCards', () => {
     expect(result.fits).toBe(true);
     expect(ids(result.kept)).toEqual(['2', '3', '4', '6', '8']);
     expect(formatTime(result.totalSeconds)).toBe('1:54');
-    expect(result.cut.map((c) => c.card.text)).toEqual(['Hook', 'Setup details', 'Graph explanation']);
+    expect(result.cut.map((c) => c.card.title)).toEqual(['Hook', 'Setup details', 'Graph explanation']);
   });
 
   it('reports which kept card covers each required point', () => {
     const result = selectCards(cards, requiredPoints, 120) as FitResult;
-    expect(result.coverage.Question.map((c) => c.text)).toEqual(['Research question']);
-    expect(result.coverage.Evidence.map((c) => c.text)).toEqual(['Results']);
+    expect(result.coverage.Question.map((c) => c.title)).toEqual(['Research question']);
+    expect(result.coverage.Evidence.map((c) => c.title)).toEqual(['Results']);
   });
 
   it('keeps the full talk when the budget allows it', () => {

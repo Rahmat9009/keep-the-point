@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { cardsFromOutline, countWords, estimateSeconds, parseOutline } from './outline';
+import { cardTitle, cardsFromOutline, countWords, estimateSeconds, parseOutline } from './outline';
+import { sampleTalk, upgradeOldSample } from './sample';
 
 const words = (n: number) => Array.from({ length: n }, (_, i) => `w${i}`).join(' ');
 
@@ -58,5 +59,40 @@ describe('cardsFromOutline', () => {
     expect(cards).toHaveLength(2);
     expect(cards[0]).toMatchObject({ id: 'id1', text: 'Hook', seconds: 3, estimated: true, locked: false, tags: [] });
     expect(cards[1]).toMatchObject({ id: 'id2', seconds: 12, estimated: true });
+  });
+});
+
+describe('cardTitle', () => {
+  it('uses the title when there is one', () => {
+    expect(cardTitle({ title: '  Hook ', text: 'Have you ever wondered why bakers keep dough warm?' })).toBe('Hook');
+  });
+  it('falls back to the first five words of the spoken text', () => {
+    expect(cardTitle({ text: 'Have you ever wondered why bakers keep dough warm?' })).toBe('Have you ever wondered why…');
+    expect(cardTitle({ title: '   ', text: '  Hook  ' })).toBe('Hook');
+    expect(cardTitle({ text: "Grandma's bakery story" })).toBe("Grandma's bakery story");
+  });
+  it('is empty for an empty card', () => {
+    expect(cardTitle({ text: '   ' })).toBe('');
+  });
+});
+
+describe('sample talk', () => {
+  it('every card has spoken text whose word count matches its seconds at 2.5 words per second', () => {
+    for (const card of sampleTalk.cards) {
+      expect(card.title, card.id).toBeTruthy();
+      expect(estimateSeconds(card.text), card.title).toBe(card.seconds);
+      expect(countWords(card.text), card.title).toBeGreaterThanOrEqual(15); // long enough to send to ✨ Shorten
+    }
+  });
+  it('replaces a saved copy of the old label-only sample, but leaves edited talks alone', () => {
+    const old = {
+      limit: '1:45',
+      talk: { ...sampleTalk, cards: sampleTalk.cards.map(({ title, short: _s, ...c }) => ({ ...c, text: title! })) },
+    };
+    expect(upgradeOldSample(old)).toEqual({ limit: '1:45', talk: sampleTalk });
+    const edited = { ...old, talk: { ...old.talk, cards: old.talk.cards.map((c, i) => (i === 0 ? { ...c, text: 'My own hook' } : c)) } };
+    expect(upgradeOldSample(edited)).toBe(edited);
+    expect(upgradeOldSample({ limit: '2:00', talk: sampleTalk })?.talk).toBe(sampleTalk);
+    expect(upgradeOldSample(null)).toBeNull();
   });
 });

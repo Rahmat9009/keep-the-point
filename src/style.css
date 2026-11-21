@@ -115,7 +115,12 @@ label.hint { display: block; margin-bottom: 6px; }
 .row--locked { border-left: 3px solid var(--accent); }
 .row__top { display: flex; align-items: center; gap: 8px; }
 .row__num { width: 1.5em; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; flex: none; }
-.row__text { flex: 1; min-width: 0; font-weight: 600; }
+.row__title { flex: 1; min-width: 0; font-weight: 600; }
+.row__text {
+  display: block; box-sizing: border-box; width: calc(100% - 1.5em - 8px); margin: 8px 0 0 calc(1.5em + 8px);
+  resize: vertical; font: inherit; line-height: 1.4;
+}
+.short__note { margin: 6px 0 0; }
 .row__secs { display: inline-flex; align-items: center; gap: 2px; flex: none; color: var(--muted); }
 .row__secs input { width: 4.5em; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
 .tilde { visibility: hidden; font-weight: 600; }
@@ -264,7 +269,8 @@ textarea.title {
 }
 .cue-lock { font-size: 0.8rem; color: var(--muted); }
 .cue-secs { margin-left: auto; color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
-.cue-text { margin: 10px 0 0; font-size: clamp(1.4rem, 3.4vw, 2rem); line-height: 1.2; font-weight: 650; overflow-wrap: anywhere; }
+.cue-title { margin: 10px 0 0; font-size: clamp(1.4rem, 3.4vw, 2rem); line-height: 1.2; font-weight: 650; overflow-wrap: anywhere; }
+.cue-text { margin: 8px 0 0; font-size: 1.1rem; line-height: 1.5; overflow-wrap: anywhere; }
 .cue-tags { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; padding: 0; }
 .cue-tags li { padding: 1px 10px; border-radius: 999px; border: 1px solid var(--accent); color: var(--accent); font-size: 0.85rem; font-weight: 600; }
 
@@ -309,7 +315,8 @@ textarea.title {
   .print-sheet .cue-card + .cue-card { margin-top: 4mm; }
   .print-sheet .cue-num { background: #000; color: #fff; width: 9mm; height: 9mm; font-size: 13pt; }
   .print-sheet .cue-lock, .print-sheet .cue-secs { color: #000; font-size: 12pt; }
-  .print-sheet .cue-text { flex: 1; margin-top: 3mm; font-size: 22pt; line-height: 1.2; font-weight: 700; }
+  .print-sheet .cue-title { margin-top: 3mm; font-size: 20pt; line-height: 1.2; font-weight: 700; }
+  .print-sheet .cue-text { flex: 1; margin-top: 2mm; font-size: 13pt; line-height: 1.4; }
   .print-sheet .cue-tags li { border-color: #000; color: #000; font-size: 10pt; }
 
   .print-sheet .cue-cut { break-inside: avoid; margin: 1.5mm 0; text-align: left; }

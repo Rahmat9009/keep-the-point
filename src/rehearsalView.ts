@@ -1,4 +1,5 @@
 import { elapsedMs, msToCardSeconds, replayTaps, type Tap, type TapType } from './rehearsal';
+import { cardTitle } from './outline';
 import { cardTimeLabel, summarize, timeLabel } from './summary';
 import { formatTime } from './time';
 import type { Card, Talk } from './types';
@@ -141,8 +142,8 @@ export function openRehearsal(opts: RehearsalOptions): () => void {
     progressEl.textContent = `Card ${s.index + 1} of ${cards.length}`;
     ref('hint').textContent = s.started ? '' : 'Press Space or tap anywhere to start';
     ref('hint').hidden = s.started;
-    ref('current').textContent = card.text || '(empty card)';
-    ref('next').textContent = next ? `Next: ${next.text || '(empty card)'}` : 'Last card';
+    ref('current').textContent = cardTitle(card) || '(empty card)';
+    ref('next').textContent = next ? `Next: ${cardTitle(next) || '(empty card)'}` : 'Last card';
     backBtn.disabled = !s.started;
     root.classList.toggle('rh--ready', !s.started);
     tick();
@@ -173,7 +174,7 @@ export function openRehearsal(opts: RehearsalOptions): () => void {
         : { ...c, seconds, estimated: false };
     });
     const summary = summarize(updatedTalkCards, opts.talk.requiredPoints, limitSeconds);
-    const cut = summary.result?.fits ? summary.result.cut.map((c) => c.card.text || '(empty card)') : [];
+    const cut = summary.result?.fits ? summary.result.cut.map((c) => cardTitle(c.card) || '(empty card)') : [];
 
     root.classList.add('rh--summary');
     root.classList.remove('rh--ready');
@@ -190,7 +191,7 @@ export function openRehearsal(opts: RehearsalOptions): () => void {
         const diff = now - c.seconds;
         const diffText = diff === 0 ? '' : `<span class="rh__diff ${diff > 0 ? 'rh__diff--up' : ''}">${diff > 0 ? '+' : '−'}${Math.abs(diff)}s</span>`;
         return `<tr>
-          <td class="rh__card">${esc(c.text) || '<em>(empty card)</em>'}</td>
+          <td class="rh__card">${esc(cardTitle(c)) || '<em>(empty card)</em>'}</td>
           <td class="num rh__old">${cardTimeLabel(c)}</td>
           <td class="num rh__new">${now}s ${diffText}</td>
         </tr>`;

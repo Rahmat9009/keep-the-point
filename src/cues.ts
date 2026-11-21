@@ -1,3 +1,4 @@
+import { cardTitle } from './outline';
 import type { Card } from './types';
 
 export interface CueCardItem {
@@ -65,7 +66,7 @@ export function cutMarkers(allCards: Card[], keptIds: Iterable<string>): CutMark
 /** "Grandma's bakery story (46s)" or "Hook (~4s), Setup details (18s)". */
 export function cutLabel(marker: CutMarker): string {
   return marker.cards
-    .map((c) => `${c.text.trim() || '(empty card)'} (${c.estimated ? '~' : ''}${c.seconds}s)`)
+    .map((c) => `${cardTitle(c) || '(empty card)'} (${c.estimated ? '~' : ''}${c.seconds}s)`)
     .join(', ');
 }
 

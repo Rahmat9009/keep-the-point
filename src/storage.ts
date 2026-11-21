@@ -1,6 +1,8 @@
 import type { Card, Talk } from './types';
 
 export const STORAGE_KEY = 'keep-the-point:v1';
+/** Longest card title kept when loading. */
+export const MAX_TITLE = 200;
 
 export interface SavedState {
   talk: Talk;
@@ -77,6 +79,7 @@ export function parseSavedState(data: unknown): SavedState | null {
       card.priority = c.priority;
     }
     if (c.estimated === true) card.estimated = true;
+    if (isString(c.title) && c.title.trim() && c.title.length <= MAX_TITLE) card.title = c.title;
     const sh = c.short;
     if (isObject(sh) && isString(sh.text) && sh.text.trim() && typeof sh.seconds === 'number' && Number.isFinite(sh.seconds) && sh.seconds >= 1) {
       card.short = { text: sh.text, seconds: Math.round(sh.seconds) };

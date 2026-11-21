@@ -49,6 +49,21 @@ describe('storage', () => {
     expect(loadState(store)).toEqual({ talk: sampleTalk, limit: '1:30' });
   });
 
+  it('loads older saved talks without card titles', () => {
+    const state = parseSavedState({
+      limit: '2:00',
+      talk: { title: 'T', requiredPoints: [], cards: [{ id: 'a', text: 'Hook', seconds: 12, tags: [] }, { id: 'b', title: 42, text: 'Method', seconds: 20, tags: [] }] },
+    });
+    expect(state?.talk.cards.map((c) => [c.title, c.text])).toEqual([[undefined, 'Hook'], [undefined, 'Method']]);
+  });
+
+  it('keeps card titles', () => {
+    const state = parseSavedState({
+      talk: { title: 'T', requiredPoints: [], cards: [{ id: 'a', title: 'Hook', text: 'Have you ever wondered…', seconds: 12, tags: [] }] },
+    });
+    expect(state?.talk.cards[0]).toMatchObject({ title: 'Hook', text: 'Have you ever wondered…' });
+  });
+
   it('survives broken or blocked storage', () => {
     const store = memory();
     store.data.set(STORAGE_KEY, '{not json');

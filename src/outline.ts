@@ -19,6 +19,17 @@ export function countWords(text: string): number {
   return trimmed === '' ? 0 : trimmed.split(/\s+/).length;
 }
 
+/** Words of the spoken text used as a title when the card has none. */
+export const TITLE_WORDS = 5;
+
+/** The card's title, or the first few words of its spoken text. Empty string for an empty card. */
+export function cardTitle(card: Pick<Card, 'title' | 'text'>): string {
+  const title = card.title?.trim();
+  if (title) return title;
+  const words = card.text.trim().split(/\s+/).filter(Boolean);
+  return words.length > TITLE_WORDS ? `${words.slice(0, TITLE_WORDS).join(' ')}…` : words.join(' ');
+}
+
 /** Estimated spoken length: words ÷ 2.5, rounded, at least 3 seconds. */
 export function estimateSeconds(text: string): number {
   return Math.max(MIN_ESTIMATE_SECONDS, Math.round(countWords(text) / WORDS_PER_SECOND));

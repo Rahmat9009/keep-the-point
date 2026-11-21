@@ -1,3 +1,4 @@
+import { cardTitle } from './outline';
 import type { Card } from './types';
 
 export const MAX_CARDS = 12;
@@ -78,7 +79,7 @@ function cutReason(card: Card, kept: Card[]): string {
     const coveredBy = card.tags
       .map((tag) => {
         const other = kept.find((k) => k.tags.includes(tag));
-        return other ? `"${tag}" is still covered by ${other.text}` : null;
+        return other ? `"${tag}" is still covered by ${cardTitle(other) || '(empty card)'}` : null;
       })
       .filter(Boolean);
     if (coveredBy.length > 0) return `${coveredBy.join('; ')} — ${saves}`;

@@ -1,6 +1,9 @@
 /** One spoken card in a talk. */
 export interface Card {
   id: string;
+  /** Optional short name for lists, cut markers and cue card headers. Falls back to the first few words of `text`. */
+  title?: string;
+  /** What the student actually says. */
   text: string;
   /** How long the card takes to say, in seconds. */
   seconds: number;

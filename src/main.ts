@@ -1,6 +1,6 @@
 import './style.css';
-import { cardsFromOutline, estimateSeconds, newCard, parseOutline } from './outline';
-import { sampleTalk } from './sample';
+import { cardTitle, cardsFromOutline, countWords, estimateSeconds, newCard, parseOutline } from './outline';
+import { sampleTalk, upgradeOldSample } from './sample';
 import { capybaraSvg } from './capybara';
 import { openCueView, printSheetHtml, type CueView } from './cueView';
 import { openRehearsal } from './rehearsalView';
@@ -15,7 +15,7 @@ import type { Card } from './types';
 const DEFAULT_LIMIT = '2:00';
 const MAX_SECONDS = 3600;
 
-let state: SavedState = loadState() ?? { talk: structuredClone(sampleTalk), limit: DEFAULT_LIMIT };
+let state: SavedState = upgradeOldSample(loadState()) ?? { talk: structuredClone(sampleTalk), limit: DEFAULT_LIMIT };
 
 /* ---------- Static layout ---------- */
 
@@ -134,6 +134,10 @@ interface ShortDraft {
   error?: string;
 }
 const drafts = new Map<string, ShortDraft>();
+/** Cards with fewer words than this are not sent to the AI. */
+const MIN_SHORTEN_WORDS = 15;
+/** "Already short." notes under the Shorten button, by card id (not saved). */
+const shortNotes = new Map<string, string>();
 
 /* ---------- State changes ---------- */
 
@@ -249,8 +253,14 @@ rowsEl.addEventListener('input', (e) => {
   const card = row && cardById(row.dataset.id!);
   if (!row || !card) return;
 
-  if (el.dataset.field === 'text') {
+  if (el.dataset.field === 'title') {
+    if (el.value.trim()) card.title = el.value;
+    else delete card.title;
+    changed(false);
+  } else if (el.dataset.field === 'text') {
     card.text = el.value;
+    el.closest('.row')?.querySelector<HTMLInputElement>('[data-field="title"]')?.setAttribute('placeholder', titlePlaceholder(card));
+    if (shortNotes.delete(card.id)) renderShort(card.id);
     const shortenBtn = row.querySelector<HTMLButtonElement>('[data-action="shorten"]');
     if (shortenBtn && !drafts.get(card.id)?.loading) shortenBtn.disabled = !card.text.trim();
     if (card.estimated) {
@@ -402,6 +412,12 @@ function handleShortAction(action: string, card: Card | undefined): boolean {
 async function shortenWithAi(card: Card) {
   if (!card.text.trim()) return;
   const id = card.id;
+  if (countWords(card.text) < MIN_SHORTEN_WORDS) {
+    shortNotes.set(id, 'Already short.');
+    renderShort(id, 'shorten');
+    return;
+  }
+  shortNotes.delete(id);
   drafts.set(id, { text: drafts.get(id)?.text ?? '', loading: true });
   renderShort(id);
   const result = await requestShorten({
@@ -459,6 +475,8 @@ function shortSectionHtml(card: Card, n: number): string {
       </div>`;
   } else if (!card.short) {
     html += `<div class="short__buttons">${aiButton('✨ Shorten')}${draft?.loading ? '' : '<button type="button" data-action="write-own">Write my own short version</button>'}</div>`;
+    const note = shortNotes.get(card.id);
+    if (note && !draft) html += `<p class="hint short__note" role="status">${esc(note)}</p>`;
   }
   return html;
 }
@@ -607,11 +625,12 @@ function renderEditor() {
         <li class="row ${card.estimated ? 'row--est' : ''} ${card.locked ? 'row--locked' : ''}" data-id="${esc(card.id)}">
           <div class="row__top">
             <span class="row__num" aria-hidden="true">${n}</span>
-            <input class="row__text" type="text" data-field="text" value="${esc(card.text)}" placeholder="What you'll say" aria-label="Card ${n} text" />
+            <input class="row__title" type="text" data-field="title" value="${esc(card.title ?? '')}" placeholder="${esc(titlePlaceholder(card))}" maxlength="200" aria-label="Card ${n} title (optional)" />
             <span class="row__secs">
               <span class="tilde" title="Estimated from word count">~</span><input type="number" min="1" max="${MAX_SECONDS}" step="1" data-field="seconds" value="${card.seconds}" aria-label="Card ${n} length in seconds" /><span aria-hidden="true">s</span>
             </span>
           </div>
+          <textarea class="row__text" data-field="text" rows="3" placeholder="What you'll say" aria-label="Card ${n} spoken text">${esc(card.text)}</textarea>
           <div class="row__tags" role="group" aria-label="Card ${n} covers">${tagBoxes}</div>
           <div class="row__controls">
             <label class="lock"><input type="checkbox" data-field="locked" ${card.locked ? 'checked' : ''} /> Always keep</label>
@@ -671,7 +690,7 @@ function renderResults() {
       return `
         <li class="card ${kept ? '' : 'card--cut'} ${isShort ? 'card--short' : ''}">
           <div class="card__main">
-            <span class="card__text">${esc(card.text) || '<em>(empty card)</em>'}</span>
+            <span class="card__text">${esc(cardTitle(card)) || '<em>(empty card)</em>'}</span>
             <span class="card__time">${cardTimeLabel(spokenCard(card, shortIds))}</span>
           </div>
           ${isShort ? `<div class="card__short"><strong>${esc(shortenedLabel(card))}</strong> <span>“${esc(card.short!.text)}”</span></div>` : ''}
@@ -684,7 +703,7 @@ function renderResults() {
   coverageEl.innerHTML = requiredPoints.length
     ? requiredPoints
         .map((point) => {
-          const by = keptCards.filter((c) => c.tags.includes(point)).map((c) => c.text || '(empty card)');
+          const by = keptCards.filter((c) => c.tags.includes(point)).map((c) => cardTitle(c) || '(empty card)');
           return `<li class="${by.length ? '' : 'missing'}"><span class="point">${esc(point)}</span><span class="by">${by.length ? esc(by.join(', ')) : 'Not covered'}</span></li>`;
         })
         .join('')
@@ -692,6 +711,11 @@ function renderResults() {
 }
 
 /* ---------- Helpers ---------- */
+
+/** Placeholder for the title box: the title the card gets if the student leaves it empty. */
+function titlePlaceholder(card: Card): string {
+  return cardTitle({ text: card.text }) || 'Title (optional)';
+}
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;

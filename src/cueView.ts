@@ -1,7 +1,7 @@
 import { AI_NOTICE, THINKING_HTML, type AiResult, type BridgeRequest } from './ai';
 import { capybaraSvg } from './capybara';
 import { buildCueItems, cutLabel, gapKey, type CutMarker } from './cues';
-import { estimateSeconds } from './outline';
+import { cardTitle, estimateSeconds } from './outline';
 import { shortenedLabel, spokenCard } from './select';
 import { cardTimeLabel, summarize, timeLabel } from './summary';
 import { formatTime } from './time';
@@ -58,7 +58,8 @@ export function cueSheetHtml(talk: Talk, budgetSeconds: number, interactive: boo
               ${isShort ? `<span class="cue-short">${esc(shortenedLabel(original))}</span>` : ''}
               <span class="cue-secs">${cardTimeLabel(card)}</span>
             </div>
-            <p class="cue-text">${esc(card.text) || '<em>(empty card)</em>'}</p>
+            <h3 class="cue-title">${esc(cardTitle(original)) || '<em>(empty card)</em>'}</h3>
+            ${card.text.trim() && card.text.trim() !== cardTitle(original) ? `<p class="cue-text">${esc(card.text)}</p>` : ''}
             ${tags}
           </article>`;
       }
@@ -75,7 +76,7 @@ export function cueSheetHtml(talk: Talk, budgetSeconds: number, interactive: boo
       if (!interactive) return `<div class="cue-cut"><span>${label}</span></div>`;
       const menuId = `cut-menu-${i}`;
       const keepButtons = item.cards
-        .map((c) => `<button type="button" data-keep="${esc(c.id)}">Keep this card${item.cards.length > 1 ? `: ${esc(c.text) || '(empty card)'}` : ''} <span class="cue-adds">+${cardTimeLabel(c)}</span></button>`)
+        .map((c) => `<button type="button" data-keep="${esc(c.id)}">Keep this card${item.cards.length > 1 ? `: ${esc(cardTitle(c) || '(empty card)')}` : ''} <span class="cue-adds">+${cardTimeLabel(c)}</span></button>`)
         .join('');
       return `
         <div class="cue-cut">
@@ -208,7 +209,7 @@ export function openCueView(opts: CueViewOptions): CueView {
     if (keep) {
       const id = keep.dataset.keep!;
       const card = opts.getState().talk.cards.find((c) => c.id === id);
-      lastKept = { id, text: card?.text || '(empty card)' };
+      lastKept = { id, text: (card && cardTitle(card)) || '(empty card)' };
       opts.keepCard(id); // the app calls refresh() after re-running the selection
       showKeptNotice();
       return;
