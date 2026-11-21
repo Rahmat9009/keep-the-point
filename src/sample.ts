@@ -1,3 +1,4 @@
+import { makeRun, type PracticeRun } from './insights';
 import type { Talk } from './types';
 
 /**
@@ -86,6 +87,37 @@ export const sampleTalk: Talk = {
  * "Setup details" cut, so the first view shows both kinds of trimming.
  */
 export const SAMPLE_LIMIT = '1:45';
+
+/**
+ * Three made-up shortened-talk rehearsals at the sample limit, so "Practice insights" has
+ * something to show on first visit. Totals 1:58 → 1:51 → 1:46. Method runs long every time;
+ * the bakery story's short version is 2s over (25%), which stays under the 3s minimum.
+ */
+export function sampleRuns(): PracticeRun[] {
+  const planned: [string, number, boolean?][] = [
+    ['1', 12],
+    ['2', 14],
+    ['3', 8, true],
+    ['4', 22],
+    ['6', 20],
+    ['7', 14],
+    ['8', 12],
+  ];
+  const actuals = [
+    [14, 16, 10, 30, 22, 14, 12],
+    [13, 15, 10, 29, 20, 12, 12],
+    [12, 14, 9, 27, 20, 12, 12],
+  ];
+  const start = Date.UTC(2026, 0, 5, 16);
+  return actuals.map((row, r) => ({
+    ...makeRun(
+      'short',
+      planned.map(([id, p, short], i) => ({ id, planned: p, actual: row[i], ...(short ? { short: true } : {}) })),
+      start + r * 86_400_000,
+    ),
+    sample: true,
+  }));
+}
 
 /** Card labels of the earlier sample, which had no spoken text. */
 const OLD_SAMPLE_LABELS = ['Hook', 'Research question', "Grandma's bakery story", 'Method', 'Setup details', 'Results', 'Graph explanation', 'Conclusion'];

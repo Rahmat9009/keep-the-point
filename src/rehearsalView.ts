@@ -16,6 +16,8 @@ export interface RehearsalOptions {
   limitSeconds: number;
   /** Called with measured seconds per card id when the student saves. */
   onSave(seconds: Map<string, number>): void;
+  /** Called once with measured seconds per card id when the run is finished, whether or not it is saved. */
+  onComplete?(seconds: Map<string, number>): void;
   /** Called after the view closes (saved or not). */
   onClose(): void;
 }
@@ -164,6 +166,7 @@ export function openRehearsal(opts: RehearsalOptions): () => void {
     cancelAnimationFrame(frame);
     const s = state();
     const measured = new Map(cards.map((c, i) => [c.id, msToCardSeconds(s.durationsMs[i] ?? 0)]));
+    opts.onComplete?.(measured);
     const oldTotal = cards.reduce((t, c) => t + c.seconds, 0);
     const newTotal = [...measured.values()].reduce((t, n) => t + n, 0);
     const updatedTalkCards = opts.talk.cards.map((c) => {

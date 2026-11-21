@@ -172,6 +172,22 @@ button.danger { color: var(--pink-ink); border-color: currentColor; }
 .inline-form button { padding: 6px 12px; }
 .actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--s-2); margin-top: var(--s-4); }
 .actions button { font-size: 0.95rem; }
+
+/* ---------- Practice insights ---------- */
+.insights { margin-top: var(--s-5); padding-top: var(--s-4); border-top: var(--hairline); outline: none; }
+.insights p { margin: 6px 0; }
+.insights__sample {
+  align-self: flex-start; display: inline; padding: 0 4px; font-size: var(--text-sm); font-weight: 600;
+  color: var(--hl-ink); background: linear-gradient(transparent 45%, var(--yellow) 45%);
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+}
+.insights__label { color: var(--muted); font-size: var(--text-sm); font-weight: 600; }
+.insights__progress b { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.insights__long { margin: 4px 0 var(--s-2); padding: 0; list-style: none; }
+.insights__long li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--s-2); padding: 6px 0; border-bottom: var(--hairline); }
+.insights__long li span { flex: 1 1 12em; overflow-wrap: anywhere; }
+.insights__practise { font-size: var(--text-sm); }
+.insights__tendency { font-weight: 700; }
 .rehearse-note { flex-basis: 100%; margin: 0; }
 .rehearse-note:empty { display: none; }
 

@@ -1,3 +1,4 @@
+import { HISTORY_LIMIT, type PracticeRun, type RunCard, type RunKind } from './insights';
 import type { Card, Talk } from './types';
 
 export const STORAGE_KEY = 'keep-the-point:v1';
@@ -8,6 +9,8 @@ export interface SavedState {
   talk: Talk;
   /** Time limit as the student typed it, e.g. "2:00". */
   limit: string;
+  /** Last few completed practice runs, oldest first. */
+  history?: PracticeRun[];
 }
 
 /** Minimal storage interface so tests can pass a fake. */
@@ -98,7 +101,32 @@ export function parseSavedState(data: unknown): SavedState | null {
   return {
     talk: { title: isString(t.title) && t.title.trim() ? t.title : 'My talk', cards, requiredPoints, ...(Object.keys(bridges).length ? { bridges } : {}) },
     limit: isString(data.limit) ? data.limit : '2:00',
+    ...(Array.isArray(data.history) ? { history: parseHistory(data.history) } : {}),
   };
+}
+
+const RUN_KINDS: RunKind[] = ['full', 'short', 'live', 'card'];
+const isSeconds = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 36_000;
+
+function parseHistory(list: unknown[]): PracticeRun[] {
+  const runs: PracticeRun[] = [];
+  for (const r of list) {
+    if (!isObject(r) || !RUN_KINDS.includes(r.kind as RunKind) || !Array.isArray(r.cards) || !isSeconds(r.totalSeconds)) continue;
+    const cards: RunCard[] = [];
+    for (const c of r.cards) {
+      if (!isObject(c) || !isString(c.id) || !isSeconds(c.planned) || !isSeconds(c.actual)) continue;
+      cards.push({ id: c.id, planned: c.planned, actual: c.actual, ...(c.short === true ? { short: true } : {}) });
+    }
+    if (!cards.length) continue;
+    runs.push({
+      kind: r.kind as RunKind,
+      at: typeof r.at === 'number' && Number.isFinite(r.at) ? r.at : 0,
+      cards,
+      totalSeconds: r.totalSeconds,
+      ...(r.sample === true ? { sample: true } : {}),
+    });
+  }
+  return runs.slice(-HISTORY_LIMIT);
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {

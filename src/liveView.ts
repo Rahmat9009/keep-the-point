@@ -21,6 +21,8 @@ export interface LiveOptions {
   limitSeconds: number;
   /** Called with measured seconds per card id (and whether the short version was said) when the speaker saves. */
   onSave(measured: Map<string, { seconds: number; short: boolean }>): void;
+  /** Called once with the measured times when the talk is finished, whether or not they are saved. */
+  onComplete?(measured: Map<string, { seconds: number; short: boolean }>): void;
   onClose(): void;
 }
 
@@ -294,6 +296,7 @@ export function openLive(opts: LiveOptions): () => void {
     const totalS = msToCardSeconds(elapsedMs(now));
     const diff = totalS - limitSeconds;
     const measured = new Map(said.map((s) => [s.id, { seconds: msToCardSeconds(s.ms), short: s.short }]));
+    opts.onComplete?.(measured);
     const saidIds = new Set(said.map((s) => s.id));
     const name = (c: Card) => cardTitle(c) || '(empty card)';
     const skipped = cards.filter((c) => firstPlan.ids.includes(c.id) && !saidIds.has(c.id)).map(name);

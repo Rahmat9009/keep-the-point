@@ -1,7 +1,8 @@
 import './tokens.css';
 import './style.css';
 import { cardTitle, cardsFromOutline, countWords, estimateSeconds, newCard, parseOutline } from './outline';
-import { SAMPLE_LIMIT, sampleTalk, upgradeOldSample } from './sample';
+import { SAMPLE_LIMIT, sampleRuns, sampleTalk, upgradeOldSample } from './sample';
+import { addRun, cardsRunningLong, makeRun, progressLine, replaceTalk, tendencyLine, type RunCard, type RunKind } from './insights';
 import { capybaraSvg } from './capybara';
 import { openCueView, printSheetHtml, type CueView } from './cueView';
 import { openRehearsal } from './rehearsalView';
@@ -19,7 +20,7 @@ const DEFAULT_LIMIT = '2:00';
 const MAX_SECONDS = 3600;
 
 const savedState = upgradeOldSample(loadState());
-let state: SavedState = savedState ?? { talk: structuredClone(sampleTalk), limit: SAMPLE_LIMIT };
+let state: SavedState = savedState ?? { talk: structuredClone(sampleTalk), limit: SAMPLE_LIMIT, history: sampleRuns() };
 
 /** Slider range: 0:30 up to the full talk length, in 5-second steps. */
 const SLIDER_MIN = 30;
@@ -93,6 +94,10 @@ app.innerHTML = `
             <button id="present-live" type="button">▶ Present live</button>
             <p id="rehearse-note" class="hint rehearse-note"></p>
           </div>
+          <section id="insights" class="insights" aria-labelledby="insights-h" tabindex="-1">
+            <h3 id="insights-h">Practice insights</h3>
+            <div id="insights-body"></div>
+          </section>
         </aside>
       </div>
 
@@ -177,6 +182,8 @@ const rehearseShort = $<HTMLButtonElement>('#rehearse-short');
 const rehearseNote = $('#rehearse-note');
 const openCuesBtn = $<HTMLButtonElement>('#open-cues');
 const presentLive = $<HTMLButtonElement>('#present-live');
+const insightsEl = $('#insights');
+const insightsBody = $('#insights-body');
 
 /** Cards the selection keeps right now (null when there's no shortened talk to rehearse). */
 let shortenedCards: Card[] | null = null;
@@ -275,7 +282,7 @@ $('#make-cards').addEventListener('click', () => {
   if (existing > 0 && !confirm(`Replace your ${plural(existing, 'card')} with ${plural(lines.length, 'new card')}?`)) {
     return;
   }
-  state.talk.cards = cardsFromOutline(outlineInput.value);
+  state = replaceTalk(state, { ...state.talk, cards: cardsFromOutline(outlineInput.value) });
   editingId = null;
   outlineBox.open = false;
   changed(true);
@@ -294,6 +301,7 @@ $('#load-sample').addEventListener('click', () => {
   if (state.talk.cards.length > 0 && !confirm('Replace your talk with the sample science-fair talk?')) return;
   state.talk = structuredClone(sampleTalk);
   state.limit = SAMPLE_LIMIT;
+  state.history = sampleRuns();
   editingId = null;
   syncInputs();
   changed(true);
@@ -302,7 +310,7 @@ $('#load-sample').addEventListener('click', () => {
 $('#clear').addEventListener('click', () => {
   if (!confirm('Clear everything and start fresh? Your cards and required points will be deleted.')) return;
   clearState();
-  state = { talk: emptyTalk(), limit: DEFAULT_LIMIT };
+  state = { talk: emptyTalk(), limit: DEFAULT_LIMIT, history: [] };
   editingId = null;
   outlineInput.value = '';
   outlineError.textContent = '';
@@ -446,12 +454,12 @@ previewEl.addEventListener('click', (e) => {
   const existing = state.talk.cards.length;
   if (!talkIsPristine() && !confirm(`Replace your ${plural(existing, 'card')} with ${plural(result.cards.length, 'new card')}?`)) return;
   const { bridges: _oldBridges, ...rest } = state.talk;
-  state.talk = {
+  state = replaceTalk(state, {
     ...rest,
     title: state.talk.title === sampleTalk.title ? 'My talk' : state.talk.title,
     cards: result.cards,
     requiredPoints: result.requiredPoints,
-  };
+  });
   editingId = null;
   hidePreview();
   outlineBox.open = false;
@@ -800,15 +808,25 @@ function renderShort(id: string, focus?: 'draft' | 'short' | 'shorten') {
 
 /* ---------- Rehearsal ---------- */
 
-function startRehearsal(label: string, cards: Card[], trigger: HTMLButtonElement, shortIds: string[] = []) {
+function startRehearsal(kind: RunKind, label: string, cards: Card[], trigger: HTMLButtonElement, shortIds: string[] = []) {
   const limit = parseTime(state.limit);
   if (limit === null || cards.length === 0) return;
+  const spoken = structuredClone(cards.map((c) => spokenCard(c, shortIds)));
   openRehearsal({
     label,
-    cards: structuredClone(cards.map((c) => spokenCard(c, shortIds))),
+    cards: spoken,
     talk: structuredClone(state.talk),
     shortIds,
     limitSeconds: limit,
+    onComplete(measured) {
+      recordRun(
+        kind,
+        spoken.map((c) => {
+          const short = shortIds.includes(c.id) && !!c.short;
+          return { id: c.id, planned: c.seconds, actual: measured.get(c.id) ?? 0, ...(short ? { short: true } : {}) };
+        }),
+      );
+    },
     onSave(measured) {
       for (const card of state.talk.cards) {
         const seconds = measured.get(card.id);
@@ -823,7 +841,7 @@ function startRehearsal(label: string, cards: Card[], trigger: HTMLButtonElement
       }
       changed(true);
     },
-    onClose: () => trigger.focus(),
+    onClose: () => (trigger.isConnected ? trigger : insightsEl).focus(),
   });
 }
 
@@ -861,9 +879,9 @@ openCuesBtn.addEventListener('click', () => {
   });
 });
 
-rehearseFull.addEventListener('click', () => startRehearsal('Full talk', state.talk.cards, rehearseFull));
+rehearseFull.addEventListener('click', () => startRehearsal('full', 'Full talk', state.talk.cards, rehearseFull));
 rehearseShort.addEventListener('click', () => {
-  if (shortenedCards) startRehearsal('Shortened talk', shortenedCards, rehearseShort, currentShortIds);
+  if (shortenedCards) startRehearsal('short', 'Shortened talk', shortenedCards, rehearseShort, currentShortIds);
 });
 
 presentLive.addEventListener('click', () => {
@@ -872,6 +890,16 @@ presentLive.addEventListener('click', () => {
   openLive({
     talk: structuredClone(state.talk),
     limitSeconds: limit,
+    onComplete(measured) {
+      const runCards: RunCard[] = [];
+      for (const [id, m] of measured) {
+        const card = cardById(id);
+        if (!card) continue;
+        const short = m.short && !!card.short;
+        runCards.push({ id, planned: short ? card.short!.seconds : card.seconds, actual: m.seconds, ...(short ? { short: true } : {}) });
+      }
+      recordRun('live', runCards);
+    },
     onSave(measured) {
       for (const card of state.talk.cards) {
         const m = measured.get(card.id);
@@ -888,6 +916,56 @@ presentLive.addEventListener('click', () => {
     },
     onClose: () => presentLive.focus(),
   });
+});
+
+/* ---------- Practice insights ---------- */
+
+/** Every finished run goes into the history, even when its times are discarded. */
+function recordRun(kind: RunKind, cards: RunCard[]) {
+  if (!cards.length) return;
+  state.history = addRun(state.history ?? [], makeRun(kind, cards, Date.now()));
+  saveState(state);
+  renderInsights();
+}
+
+function renderInsights() {
+  const history = state.history ?? [];
+  if (!history.length) {
+    insightsBody.innerHTML = '<p class="hint">Rehearse once to see insights.</p>';
+    return;
+  }
+  const progress = progressLine(history);
+  const tendency = tendencyLine(history);
+  const long = cardsRunningLong(history, state.talk.cards);
+  const sample = history.some((r) => r.sample);
+  const longHtml = long.length
+    ? `<p class="insights__label">Keeps running long</p>
+       <ul class="insights__long">${long
+         .map(
+           (l) => `<li>
+             <span>${esc(cardTitle(l.card) || '(empty card)')}${l.short ? ' (short)' : ''} · planned ${l.planned}s · you average ${Math.round(l.average)}s</span>
+             <button type="button" class="insights__practise" data-practise="${esc(l.card.id)}" data-short="${l.short ? '1' : ''}">Practise this card</button>
+           </li>`,
+         )
+         .join('')}</ul>`
+    : progress
+      ? '<p class="hint">No card keeps running long.</p>'
+      : '<p class="hint">Rehearse the whole talk to see your progress.</p>';
+  insightsBody.innerHTML = `
+    ${sample ? '<p class="insights__sample">Sample practice runs. Rehearse to replace them with yours.</p>' : ''}
+    ${progress ? `<p class="insights__progress"><span class="insights__label">Progress</span> <b>${esc(progress)}</b></p>` : ''}
+    ${longHtml}
+    ${tendency ? `<p class="insights__tendency">${esc(tendency)}</p>` : ''}
+  `;
+}
+
+insightsBody.addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-practise]');
+  if (!btn) return;
+  const card = cardById(btn.dataset.practise!);
+  if (!card) return;
+  const short = btn.dataset.short === '1' && !!card.short;
+  startRehearsal('card', `Practise: ${cardTitle(card) || 'card'}`, [card], btn, short ? [card.id] : []);
 });
 
 function updateRehearseButtons(fits: boolean, limitValid: boolean) {
@@ -1055,6 +1133,7 @@ function renderResults(summary: Summary | null, budget: number | null) {
   limitInput.toggleAttribute('aria-invalid', budget === null);
   syncSlider(budget);
   renderPoints(summary ?? lastSummary);
+  renderInsights();
   if (budget === null || !summary) {
     updateRehearseButtons(false, false);
     return; // keep showing the last valid result
