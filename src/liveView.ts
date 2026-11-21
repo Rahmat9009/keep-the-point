@@ -15,14 +15,16 @@ import { cardTitle } from './outline';
 import { selectCards } from './select';
 import { formatTime } from './time';
 import type { Card, Talk } from './types';
+import { changesSpeaker, speakerTimes } from './group';
+import { speakerTimesHtml } from './groupView';
 
 export interface LiveOptions {
   talk: Talk;
   limitSeconds: number;
   /** Called with measured seconds per card id (and whether the short version was said) when the speaker saves. */
   onSave(measured: Map<string, { seconds: number; short: boolean }>): void;
-  /** Called once with the measured times when the talk is finished, whether or not they are saved. */
-  onComplete?(measured: Map<string, { seconds: number; short: boolean }>): void;
+  /** Called once when the talk finishes, with speaking times and the separate handoff total. */
+  onComplete?(measured: Map<string, { seconds: number; short: boolean }>, handoffSeconds: number): void;
   onClose(): void;
 }
 
@@ -56,6 +58,8 @@ export function openLive(opts: LiveOptions): () => void {
   const said: Said[] = [];
   let startedAt: number | null = null;
   let cardStartedAt = 0;
+  let handoffStartedAt: number | null = null;
+  let handoffMs = 0;
   let endedAt: number | null = null;
   /** The plan before the last automatic change, for U. */
   let undo: { plan: LivePlan; wrapUp: boolean } | null = null;
@@ -85,6 +89,7 @@ export function openLive(opts: LiveOptions): () => void {
     <p class="lv__banner" data-ref="banner" role="status" aria-live="polite" hidden></p>
     <div class="rh__stage" data-ref="stage">
       <p class="rh__hint" data-ref="hint"></p>
+      <p class="rh__speaker" data-ref="speaker" aria-live="polite" hidden></p>
       <p class="rh__current" data-ref="current"></p>
       <p class="lv__text" data-ref="text"></p>
       <p class="rh__next" data-ref="next"></p>
@@ -179,7 +184,7 @@ export function openLive(opts: LiveOptions): () => void {
     if (!currentId) return elapsedMs(now) / 1000;
     const currentPlanned = plannedSeconds(byId.get(currentId)!, isShort(currentId));
     const restPlanned = planSeconds({ ids: rest, shortIds: plan.shortIds }, cards);
-    const onCard = startedAt === null ? 0 : (now - cardStartedAt) / 1000;
+    const onCard = startedAt === null || handoffStartedAt !== null ? 0 : (now - cardStartedAt) / 1000;
     return projectedFinish(elapsedMs(now) / 1000, onCard, currentPlanned, restPlanned);
   }
 
@@ -190,6 +195,14 @@ export function openLive(opts: LiveOptions): () => void {
       startedAt = now;
       cardStartedAt = now;
       render();
+      return;
+    }
+    if (handoffStartedAt !== null) {
+      endHandoff(now);
+      const remaining = Math.floor(limitSeconds - elapsedMs(now) / 1000);
+      if (planSeconds(plan, cards) > remaining) applyReplan(plan, now, true);
+      if (plan.ids.length === 0) finish(now);
+      else render();
       return;
     }
     const id = plan.ids[0];
@@ -203,6 +216,18 @@ export function openLive(opts: LiveOptions): () => void {
       return;
     }
 
+    applyReplan(before, now);
+    if (plan.ids.length === 0) {
+      finish(now);
+      return;
+    }
+    if (talk.groupMode && changesSpeaker(byId.get(id)!, byId.get(plan.ids[0]))) {
+      handoffStartedAt = now;
+    }
+    render();
+  }
+
+  function applyReplan(before: LivePlan, now: number, preserveUndo = false) {
     const next = replan({
       cards,
       requiredPoints: talk.requiredPoints,
@@ -217,19 +242,22 @@ export function openLive(opts: LiveOptions): () => void {
       undo = { plan: before, wrapUp };
       plan = next.plan;
       wrapUp = next.wrapUp;
-      const text = changes.length ? describeChanges(changes, cards, next.overSeconds, false) : '';
+      const text = changes.length ? describeChanges(changes, cards, next.overSeconds, false, talk.groupMode) : '';
       const wrap = next.wrapUp ? describeChanges([], cards, 0, true) : '';
       showBanner([text, wrap].filter(Boolean).join(' · '));
     } else {
-      undo = null;
+      if (!preserveUndo) undo = null;
       plan = before;
       wrapUp = next.wrapUp;
     }
-    if (plan.ids.length === 0) {
-      finish(now);
-      return;
-    }
-    render();
+  }
+
+  function endHandoff(now: number) {
+    if (handoffStartedAt === null) return;
+    handoffMs += now - handoffStartedAt;
+    handoffStartedAt = null;
+    cardStartedAt = now;
+    if (!bannerEl.hidden) hideBannerAfterReading();
   }
 
   function undoChange() {
@@ -238,6 +266,9 @@ export function openLive(opts: LiveOptions): () => void {
     plan = undo.plan;
     wrapUp = undo.wrapUp;
     undo = null;
+    if (handoffStartedAt !== null && !changesSpeaker(byId.get(said[said.length - 1].id)!, byId.get(plan.ids[0]))) {
+      endHandoff(performance.now());
+    }
     showBanner('Undone: back to the previous plan');
     render();
   }
@@ -245,8 +276,14 @@ export function openLive(opts: LiveOptions): () => void {
   function showBanner(text: string) {
     bannerEl.textContent = text;
     bannerEl.hidden = false;
+    hideBannerAfterReading();
+  }
+
+  function hideBannerAfterReading() {
     clearTimeout(bannerTimer);
-    bannerTimer = window.setTimeout(() => (bannerEl.hidden = true), BANNER_MS);
+    bannerTimer = window.setTimeout(() => {
+      if (handoffStartedAt === null) bannerEl.hidden = true;
+    }, BANNER_MS);
   }
 
   /* ----- Running view ----- */
@@ -258,14 +295,21 @@ export function openLive(opts: LiveOptions): () => void {
     const nextId = plan.ids[1];
     const next = nextId ? byId.get(nextId) : undefined;
     const total = said.length + plan.ids.length;
-    ref('progress').textContent = `Card ${said.length + 1} of ${total}`;
-    ref('hint').textContent = started ? '' : 'Press Space or tap anywhere to start the clock';
-    ref('hint').hidden = started;
+    const handoff = handoffStartedAt !== null;
+    ref('progress').textContent = handoff ? 'Speaker handoff' : `Card ${said.length + 1} of ${total}`;
+    ref('hint').textContent = handoff
+      ? 'Press Space or tap when the next speaker is ready'
+      : 'Press Space or tap anywhere to start the clock';
+    ref('hint').hidden = started && !handoff;
+    const speaker = talk.groupMode ? card.speaker : undefined;
+    ref('speaker').hidden = !speaker;
+    ref('speaker').textContent = handoff ? `Hand off to ${speaker}` : speaker ?? '';
     ref('current').textContent = cardTitle(card) || '(empty card)';
     const short = isShort(id) && card.short;
+    ref('text').hidden = handoff;
     ref('text').innerHTML = `${short ? '<span class="lv__badge">Short version</span> ' : ''}${esc(short ? card.short!.text : card.text)}`;
     ref('next').textContent = next
-      ? `Next: ${cardTitle(next) || '(empty card)'}${isShort(next.id) ? ' (short)' : ''}`
+      ? `Next: ${talk.groupMode && changesSpeaker(card, next) ? `${next.speaker} · ` : ''}${cardTitle(next) || '(empty card)'}${isShort(next.id) ? ' (short)' : ''}`
       : 'Last card';
     undoBtn.disabled = !undo;
     root.classList.toggle('rh--ready', !started);
@@ -296,7 +340,12 @@ export function openLive(opts: LiveOptions): () => void {
     const totalS = msToCardSeconds(elapsedMs(now));
     const diff = totalS - limitSeconds;
     const measured = new Map(said.map((s) => [s.id, { seconds: msToCardSeconds(s.ms), short: s.short }]));
-    opts.onComplete?.(measured);
+    const handoffSeconds = Math.round(handoffMs / 1000);
+    opts.onComplete?.(measured, handoffSeconds);
+    const speakers = talk.groupMode ? speakerTimesHtml(
+      speakerTimes(cards.filter((card) => firstPlan.ids.includes(card.id)), (card) => plannedSeconds(card, firstPlan.shortIds.includes(card.id))),
+      speakerTimes(said.map((entry) => byId.get(entry.id)!), (card) => measured.get(card.id)!.seconds),
+    ) : '';
     const saidIds = new Set(said.map((s) => s.id));
     const name = (c: Card) => cardTitle(c) || '(empty card)';
     const skipped = cards.filter((c) => firstPlan.ids.includes(c.id) && !saidIds.has(c.id)).map(name);
@@ -335,6 +384,8 @@ export function openLive(opts: LiveOptions): () => void {
     ref('stage').innerHTML = `
       <div class="rh__summary">
         <h2>Finished in ${formatTime(totalS)} <span class="lv__vs">${diff > 0 ? `· ${gapLabel(diff)} over` : diff < 0 ? `· ${gapLabel(diff)} under` : '· right on'} the ${formatTime(limitSeconds)} limit</span></h2>
+        ${speakers}
+        ${handoffMs > 0 ? `<p class="hint">Handoffs took ${formatTime(handoffSeconds)}.</p>` : ''}
         ${list('Skipped live', skipped)}${list('Added back live', added)}${list('Shortened live', shortened)}
         ${!skipped.length && !added.length && !shortened.length ? '<p class="lv__changes">No changes to the plan were needed.</p>' : ''}
         <table class="rh__table">

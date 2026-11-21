@@ -3,6 +3,8 @@ import { cardTitle } from './outline';
 import { cardTimeLabel, summarize, timeLabel } from './summary';
 import { formatTime } from './time';
 import type { Card, Talk } from './types';
+import { rehearsalSteps, speakerTimes } from './group';
+import { speakerTimesHtml } from './groupView';
 
 export interface RehearsalOptions {
   /** Shown in the top bar, e.g. "Full talk". */
@@ -16,15 +18,16 @@ export interface RehearsalOptions {
   limitSeconds: number;
   /** Called with measured seconds per card id when the student saves. */
   onSave(seconds: Map<string, number>): void;
-  /** Called once with measured seconds per card id when the run is finished, whether or not it is saved. */
-  onComplete?(seconds: Map<string, number>): void;
+  /** Called once when the run finishes, with speaking times and the separate handoff total. */
+  onComplete?(seconds: Map<string, number>, handoffSeconds: number): void;
   /** Called after the view closes (saved or not). */
   onClose(): void;
 }
 
 /** Open the full-screen rehearsal view. Returns a function that closes it without saving. */
 export function openRehearsal(opts: RehearsalOptions): () => void {
-  const { cards, limitSeconds } = opts;
+  const { cards, limitSeconds, talk } = opts;
+  const steps = rehearsalSteps(cards, talk.groupMode === true);
   const limitMs = limitSeconds * 1000;
   const taps: Tap[] = [];
   let frame = 0;
@@ -48,6 +51,7 @@ export function openRehearsal(opts: RehearsalOptions): () => void {
     </div>
     <div class="rh__stage" data-ref="stage">
       <p class="rh__hint" data-ref="hint"></p>
+      <p class="rh__speaker" data-ref="speaker" hidden></p>
       <p class="rh__current" data-ref="current" aria-live="polite"></p>
       <p class="rh__next" data-ref="next"></p>
     </div>
@@ -130,7 +134,7 @@ export function openRehearsal(opts: RehearsalOptions): () => void {
   /* ----- Running view ----- */
 
   function state() {
-    return replayTaps(cards.length, taps);
+    return replayTaps(steps.length, taps);
   }
 
   function isSummary() {
@@ -139,13 +143,22 @@ export function openRehearsal(opts: RehearsalOptions): () => void {
 
   function renderRunning() {
     const s = state();
-    const card = cards[s.index];
-    const next = cards[s.index + 1];
-    progressEl.textContent = `Card ${s.index + 1} of ${cards.length}`;
-    ref('hint').textContent = s.started ? '' : 'Press Space or tap anywhere to start';
-    ref('hint').hidden = s.started;
-    ref('current').textContent = cardTitle(card) || '(empty card)';
-    ref('next').textContent = next ? `Next: ${cardTitle(next) || '(empty card)'}` : 'Last card';
+    const step = steps[s.index];
+    const next = steps[s.index + 1];
+    const cardNumber = steps.slice(0, s.index + 1).filter((item) => item.kind === 'card').length;
+    const label = (card: Card) => cardTitle(card) || '(empty card)';
+    const handoff = step.kind === 'handoff';
+    progressEl.textContent = handoff ? 'Speaker handoff' : `Card ${cardNumber} of ${cards.length}`;
+    const hint = handoff ? 'Press Space or tap when the next speaker is ready' : 'Press Space or tap anywhere to start';
+    ref('hint').textContent = hint;
+    ref('hint').hidden = s.started && !handoff;
+    const speaker = talk.groupMode && step.kind === 'card' ? step.card.speaker : undefined;
+    ref('speaker').textContent = speaker ?? '';
+    ref('speaker').hidden = !speaker;
+    ref('current').textContent = step.kind === 'card' ? label(step.card) : `Hand off to ${step.to.speaker}`;
+    ref('next').textContent = next?.kind === 'handoff'
+      ? `Next speaker: ${next.to.speaker}`
+      : next ? `Next: ${label(next.card)}` : 'Last card';
     backBtn.disabled = !s.started;
     root.classList.toggle('rh--ready', !s.started);
     tick();
@@ -165,10 +178,27 @@ export function openRehearsal(opts: RehearsalOptions): () => void {
   function showSummary() {
     cancelAnimationFrame(frame);
     const s = state();
-    const measured = new Map(cards.map((c, i) => [c.id, msToCardSeconds(s.durationsMs[i] ?? 0)]));
-    opts.onComplete?.(measured);
+    const measured = new Map<string, number>();
+    const handoffs: { from: Card; to: Card; ms: number }[] = [];
+    steps.forEach((step, i) => {
+      const ms = s.durationsMs[i] ?? 0;
+      if (step.kind === 'card') measured.set(step.card.id, msToCardSeconds(ms));
+      else handoffs.push({ from: step.from, to: step.to, ms });
+    });
+    const handoffSeconds = Math.round(handoffs.reduce((total, handoff) => total + handoff.ms, 0) / 1000);
+    opts.onComplete?.(measured, handoffSeconds);
     const oldTotal = cards.reduce((t, c) => t + c.seconds, 0);
-    const newTotal = [...measured.values()].reduce((t, n) => t + n, 0);
+    const newTotal = [...measured.values()].reduce((t, n) => t + n, handoffSeconds);
+    const speakers = talk.groupMode
+      ? speakerTimesHtml(speakerTimes(cards, (card) => card.seconds), speakerTimes(cards, (card) => measured.get(card.id) ?? 0))
+      : '';
+    const handoffList = handoffs.length ? `
+      <details class="outline group-handoffs">
+        <summary>Handoffs took ${formatTime(handoffSeconds)}</summary>
+        <ul>${handoffs.map(({ from, to, ms }) =>
+          `<li>${esc(from.speaker ?? '')} to ${esc(to.speaker ?? '')}: ${formatTime(Math.round(ms / 1000))}</li>`,
+        ).join('')}</ul>
+      </details>` : '';
     const updatedTalkCards = opts.talk.cards.map((c) => {
       if (!measured.has(c.id)) return c;
       const seconds = measured.get(c.id)!;
@@ -176,7 +206,8 @@ export function openRehearsal(opts: RehearsalOptions): () => void {
         ? { ...c, short: { ...c.short, seconds, estimated: false } }
         : { ...c, seconds, estimated: false };
     });
-    const summary = summarize(updatedTalkCards, opts.talk.requiredPoints, limitSeconds);
+    const reviewLimit = Math.max(0, limitSeconds - handoffSeconds);
+    const summary = summarize(updatedTalkCards, opts.talk.requiredPoints, reviewLimit);
     const cut = summary.result?.fits ? summary.result.cut.map((c) => cardTitle(c.card) || '(empty card)') : [];
 
     root.classList.add('rh--summary');
@@ -204,16 +235,18 @@ export function openRehearsal(opts: RehearsalOptions): () => void {
     stage.innerHTML = `
       <div class="rh__summary">
         <h2>How it went</h2>
+        ${speakers}
+        ${handoffList}
         <table class="rh__table">
           <thead><tr><th scope="col">Card</th><th scope="col" class="num">Before</th><th scope="col" class="num">This run</th></tr></thead>
           <tbody>${rows}</tbody>
           <tfoot><tr>
-            <th scope="row">Total</th>
+            <th scope="row">${handoffs.length ? 'Total including handoffs' : 'Total'}</th>
             <td class="num rh__old">${timeLabel(oldTotal, cards.some((c) => c.estimated))}</td>
             <td class="num rh__new">${formatTime(newTotal)}</td>
           </tr></tfoot>
         </table>
-        <p class="rh__label">With these times, for a ${formatTime(limitSeconds)} limit:</p>
+        <p class="rh__label">${handoffSeconds ? `With ${formatTime(handoffSeconds)} reserved for handoffs, your cards have ${formatTime(reviewLimit)}:` : `With these times, for a ${formatTime(limitSeconds)} limit:`}</p>
         <p class="summary ${summary.tone === 'bad' ? 'summary--bad' : summary.tone === 'quiet' ? 'summary--quiet' : ''}">${esc(summary.text)}</p>
         ${cut.length ? `<p class="hint">Would cut: ${esc(cut.join(', '))}</p>` : ''}
         <div class="buttons">

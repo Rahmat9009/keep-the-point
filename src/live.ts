@@ -206,10 +206,14 @@ export function finishLabel(
 }
 
 /** e.g. "7s over → skip 'Seattle study' (saves 18s)" or "12s spare → added back 'Setup details' (+18s)". */
-export function describeChanges(changes: PlanChange[], cards: Card[], overSeconds: number, wrapUp: boolean): string {
+export function describeChanges(changes: PlanChange[], cards: Card[], overSeconds: number, wrapUp: boolean, showSpeakers = false): string {
   if (wrapUp) return 'Wrap up: required points only';
   const byId = new Map(cards.map((c) => [c.id, c]));
-  const name = (id: string) => `'${cardTitle(byId.get(id)!) || '(empty card)'}'`;
+  const name = (id: string) => {
+    const card = byId.get(id)!;
+    const title = `'${cardTitle(card) || '(empty card)'}'`;
+    return showSpeakers && card.speaker ? `${title} (${card.speaker})` : title;
+  };
   const parts = changes.map((ch) => {
     switch (ch.kind) {
       case 'skip':

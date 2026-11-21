@@ -595,3 +595,19 @@ kbd {
   .print-sheet .cue-empty { background: none; border: 0.3mm solid #1c2541; }
   .print-sheet .ps-foot { break-inside: avoid; display: flex; align-items: center; gap: 4mm; margin-top: 6mm; font-size: 9pt; color: #4a5370; }
 }
+
+/* ---------- Group presentation ---------- */
+
+.group-settings { margin: var(--s-4) 0; }
+.group-settings > .check { display: inline-flex; margin: var(--s-2) 0; }
+.group-speaker {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center; gap: var(--s-3); margin: var(--s-2) 0;
+  font-size: var(--text-sm); overflow-wrap: anywhere;
+}
+.group-speaker input { width: 100%; min-width: 0; }
+.group-times { margin: var(--s-4) 0 var(--s-2); }
+.group-times caption { font-weight: 700; text-align: left; }
+.card__speaker { margin: 4px 0 0; overflow-wrap: anywhere; }
+.rh__speaker { margin: 0 0 var(--s-2); font-weight: 700; overflow-wrap: anywhere; }
+.cue-speaker { margin: 8px 0 0; font-size: var(--text-sm); font-weight: 700; overflow-wrap: anywhere; }

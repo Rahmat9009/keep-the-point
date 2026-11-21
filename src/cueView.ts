@@ -5,7 +5,8 @@ import { cardTitle, estimateSeconds } from './outline';
 import { shortenedLabel, spokenCard } from './select';
 import { cardTimeLabel, summarize, timeLabel } from './summary';
 import { formatTime } from './time';
-import type { Talk } from './types';
+import type { Card, Talk } from './types';
+import { changesSpeaker } from './group';
 
 /** On-screen state of the bridge tools (not saved). */
 export interface BridgeUi {
@@ -32,6 +33,7 @@ export function cueSheetHtml(talk: Talk, budgetSeconds: number, interactive: boo
   const items = buildCueItems(talk.cards, result.kept.map((c) => c.id));
   const bridges = talk.bridges ?? {};
   let bridgeTotal = 0;
+  let previous: Card | undefined;
   /** Bridge line waiting to be shown at the top of the next card. */
   let pendingBridge: { key: string; text: string } | null = null;
 
@@ -43,6 +45,11 @@ export function cueSheetHtml(talk: Talk, budgetSeconds: number, interactive: boo
         const isShort = card !== original;
         const tags = card.tags.length
           ? `<ul class="cue-tags" aria-label="Covers">${card.tags.map((t) => `<li>${esc(t)}</li>`).join('')}</ul>`
+          : '';
+        const handoff = talk.groupMode && previous && changesSpeaker(previous, card);
+        previous = card;
+        const speaker = talk.groupMode && card.speaker
+          ? `<p class="cue-speaker">${handoff ? 'Hand off to ' : 'Speaker: '}${esc(card.speaker)}</p>`
           : '';
         const bridge = pendingBridge;
         pendingBridge = null;
@@ -58,6 +65,7 @@ export function cueSheetHtml(talk: Talk, budgetSeconds: number, interactive: boo
               ${isShort ? `<span class="cue-short">${esc(shortenedLabel(original))}</span>` : ''}
               <span class="cue-secs">${cardTimeLabel(card)}</span>
             </div>
+            ${speaker}
             <h3 class="cue-title">${esc(cardTitle(original)) || '<em>(empty card)</em>'}</h3>
             ${card.text.trim() && card.text.trim() !== cardTitle(original) ? `<p class="cue-text">${esc(card.text)}</p>` : ''}
             ${tags}
