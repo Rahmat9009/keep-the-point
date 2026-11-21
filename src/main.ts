@@ -5,6 +5,7 @@ import { SAMPLE_LIMIT, sampleTalk, upgradeOldSample } from './sample';
 import { capybaraSvg } from './capybara';
 import { openCueView, printSheetHtml, type CueView } from './cueView';
 import { openRehearsal } from './rehearsalView';
+import { openLive } from './liveView';
 import { MAX_CARDS, shortenedLabel, spokenCard } from './select';
 import { AI_NOTICE, THINKING_HTML, requestBridge, requestSetup, requestShorten, shortenTarget } from './ai';
 import { MAX_RUBRIC_CHARS, MAX_SCRIPT_CHARS, MESSY_RUBRIC, MESSY_SCRIPT, buildSetup, splitSentences, type SetupResult } from './setup';
@@ -89,6 +90,7 @@ app.innerHTML = `
             <button id="open-cues" class="primary" type="button" aria-describedby="rehearse-note">Open cue cards</button>
             <button id="rehearse-full" type="button">▶ Rehearse full talk</button>
             <button id="rehearse-short" type="button" aria-describedby="rehearse-note">▶ Rehearse shortened talk</button>
+            <button id="present-live" type="button">▶ Present live</button>
             <p id="rehearse-note" class="hint rehearse-note"></p>
           </div>
         </aside>
@@ -174,6 +176,7 @@ const rehearseFull = $<HTMLButtonElement>('#rehearse-full');
 const rehearseShort = $<HTMLButtonElement>('#rehearse-short');
 const rehearseNote = $('#rehearse-note');
 const openCuesBtn = $<HTMLButtonElement>('#open-cues');
+const presentLive = $<HTMLButtonElement>('#present-live');
 
 /** Cards the selection keeps right now (null when there's no shortened talk to rehearse). */
 let shortenedCards: Card[] | null = null;
@@ -863,9 +866,34 @@ rehearseShort.addEventListener('click', () => {
   if (shortenedCards) startRehearsal('Shortened talk', shortenedCards, rehearseShort, currentShortIds);
 });
 
+presentLive.addEventListener('click', () => {
+  const limit = parseTime(state.limit);
+  if (limit === null || state.talk.cards.length === 0 || state.talk.cards.length > MAX_CARDS) return;
+  openLive({
+    talk: structuredClone(state.talk),
+    limitSeconds: limit,
+    onSave(measured) {
+      for (const card of state.talk.cards) {
+        const m = measured.get(card.id);
+        if (!m) continue;
+        if (m.short && card.short) {
+          card.short.seconds = m.seconds;
+          card.short.estimated = false;
+        } else {
+          card.seconds = m.seconds;
+          card.estimated = false;
+        }
+      }
+      changed(true);
+    },
+    onClose: () => presentLive.focus(),
+  });
+});
+
 function updateRehearseButtons(fits: boolean, limitValid: boolean) {
   const cards = state.talk.cards;
   rehearseFull.disabled = cards.length === 0 || !limitValid;
+  presentLive.disabled = cards.length === 0 || cards.length > MAX_CARDS || !limitValid;
   rehearseShort.disabled = !fits || !shortenedCards?.length;
   openCuesBtn.disabled = rehearseShort.disabled;
   rehearseNote.textContent =

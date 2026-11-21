@@ -414,6 +414,34 @@ kbd {
 .rh__summary .summary--quiet { color: var(--muted); }
 .rh__summary .buttons { margin-top: 18px; }
 
+/* ---------- Present live: rehearsal view + time left, pace and plan changes ---------- */
+.lv__time { display: flex; flex-direction: column; align-items: center; line-height: 1.05; }
+.lv__left { font-family: var(--font-head); font-size: clamp(2.2rem, 6vw, 3.4rem); font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.lv__unit { color: var(--muted); font-size: 1rem; font-weight: 600; letter-spacing: 0; }
+.lv__pace { margin-top: 2px; font-weight: 700; font-size: 1.05rem; color: var(--muted); }
+.lv__pace[data-tone="behind"] { color: var(--amber-ink); }
+.lv__pace[data-tone="ahead"] { color: var(--green); }
+.lv__pace[data-tone="over"] { color: var(--pink-ink); }
+.lv__banner {
+  margin: 0; padding: 10px 20px; font-weight: 700; font-size: 1.05rem; text-align: center;
+  color: var(--hl-ink); background: var(--yellow); overflow-wrap: anywhere;
+}
+.lv__banner[hidden] { display: none; }
+.lv__text { margin: var(--s-4) 0 0; max-width: 60ch; font-size: clamp(1.05rem, 2.2vw, 1.4rem); line-height: 1.45; color: var(--ink); overflow-wrap: anywhere; }
+.lv__badge { padding: 0 6px; font-size: 0.8em; font-weight: 700; color: var(--hl-ink); background: var(--yellow); border-radius: var(--r-sm); }
+.lv.rh--ready .lv__text { opacity: 0.55; }
+.lv--over { box-shadow: inset 0 0 0 6px var(--pink); }
+.lv--over .lv__left, .lv--over .lv__unit, .lv--over .rh__current, .lv--over .lv__text, .lv--over .rh__mode { color: var(--pink-ink); }
+.lv--over .lv__banner { background: var(--pink); }
+.lv__vs { color: var(--muted); font-size: 1rem; font-weight: 600; }
+.lv--over .lv__vs { color: var(--pink-ink); }
+.lv__changes { margin: 6px 0; }
+@media (max-width: 560px) {
+  .lv .rh__bar { justify-content: center; text-align: center; }
+  .lv .rh__where { order: 2; width: 100%; }
+  .lv .rh__buttons { order: 3; }
+}
+
 /* ---------- Cue cards: index cards on the desk ---------- */
 .cue { position: fixed; inset: 0; z-index: 100; display: flex; flex-direction: column; color: var(--ink); background: var(--paper); }
 .cue__bar {

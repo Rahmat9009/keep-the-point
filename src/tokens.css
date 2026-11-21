@@ -24,6 +24,7 @@
   --pink-ink: #b0124e;        /* cut notes and errors: 6.9:1 on paper */
   --blue: #2246a8;            /* links, bridge lines: 8.4:1 on paper */
   --green: #157347;           /* covered tick: 5.9:1 on paper */
+  --amber-ink: #8a5000;       /* "behind" pace line: 6.6:1 on paper */
   --focus: #2246a8;
 
   /* Type */
@@ -88,6 +89,7 @@
     --pink-ink: #ff9fbf;      /* 8.6:1 on paper */
     --blue: #a9bfff;          /* 9.6:1 on paper */
     --green: #7fdcae;
+    --amber-ink: #ffc46b;     /* 11:1 on paper */
     --focus: #a9bfff;
     --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 20px -10px rgb(0 0 0 / 0.6);
     color-scheme: dark;
