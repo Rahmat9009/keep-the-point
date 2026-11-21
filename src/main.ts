@@ -6,7 +6,8 @@ import { capybaraSvg } from './capybara';
 import { openCueView, printSheetHtml, type CueView } from './cueView';
 import { openRehearsal } from './rehearsalView';
 import { MAX_CARDS, shortenedLabel, spokenCard } from './select';
-import { AI_NOTICE, THINKING_HTML, requestBridge, requestShorten, shortenTarget } from './ai';
+import { AI_NOTICE, THINKING_HTML, requestBridge, requestSetup, requestShorten, shortenTarget } from './ai';
+import { MAX_RUBRIC_CHARS, MAX_SCRIPT_CHARS, MESSY_RUBRIC, MESSY_SCRIPT, buildSetup, splitSentences, type SetupResult } from './setup';
 import { clearState, loadState, saveState, type SavedState } from './storage';
 import { cardTimeLabel, summarize, type Summary } from './summary';
 import { addPoint, emptyTalk, moveCard, removePoint } from './talk';
@@ -104,11 +105,28 @@ app.innerHTML = `
             <button id="clear" class="danger" type="button">Clear</button>
           </div>
           <details id="outline-box" class="outline">
-            <summary>Paste an outline</summary>
-            <label for="outline" class="hint">Paste your outline, one card per line.</label>
-            <textarea id="outline" rows="5" placeholder="Hook: why does bread rise?&#10;My research question&#10;How I tested it"></textarea>
-            <p id="outline-error" class="error" role="alert"></p>
-            <button id="make-cards" class="primary" type="button">Make cards</button>
+            <summary>Paste your talk</summary>
+            <div class="setup">
+              <label class="field" for="script">Your script <span class="hint">(paragraphs are fine)</span></label>
+              <textarea id="script" rows="9" placeholder="Paste what you'll say, word for word." aria-describedby="script-count"></textarea>
+              <p id="script-count" class="hint setup__count"></p>
+              <label class="field" for="rubric">What must you cover? <span class="hint">(optional: paste your rubric or assignment)</span></label>
+              <textarea id="rubric" rows="3" placeholder="e.g. Must include: claim, evidence, counterargument, conclusion"></textarea>
+              <p id="setup-error" class="error" role="alert"></p>
+              <div class="buttons">
+                <button id="make-smart" class="primary" type="button">✨ Make my cards</button>
+                <button id="try-messy" type="button">Try with a messy script</button>
+              </div>
+              <p class="hint setup__notice">✨ ${AI_NOTICE} Your words stay exactly as you wrote them: the AI only suggests where each card starts and ends.</p>
+              <button id="show-lines" class="linkbtn setup__lines" type="button" aria-expanded="false" aria-controls="line-mode">or split it line by line myself</button>
+              <div id="line-mode" class="line-mode" hidden>
+                <label for="outline" class="hint">One card per line.</label>
+                <textarea id="outline" rows="5" placeholder="Hook: why does bread rise?&#10;My research question&#10;How I tested it"></textarea>
+                <p id="outline-error" class="error" role="alert"></p>
+                <button id="make-cards" type="button">Make cards</button>
+              </div>
+              <section id="setup-preview" class="preview" hidden aria-labelledby="preview-h"></section>
+            </div>
           </details>
         </div>
       </div>
@@ -135,6 +153,15 @@ const tooManyEl = $('#too-many');
 const heroEl = $('#hero');
 const outlineBox = $<HTMLDetailsElement>('#outline-box');
 const outlineInput = $<HTMLTextAreaElement>('#outline');
+const scriptInput = $<HTMLTextAreaElement>('#script');
+const rubricInput = $<HTMLTextAreaElement>('#rubric');
+const scriptCount = $('#script-count');
+const setupError = $('#setup-error');
+const makeSmartBtn = $<HTMLButtonElement>('#make-smart');
+const tryMessyBtn = $<HTMLButtonElement>('#try-messy');
+const lineMode = $('#line-mode');
+const showLinesBtn = $<HTMLButtonElement>('#show-lines');
+const previewEl = $('#setup-preview');
 const outlineError = $('#outline-error');
 const pointList = $('#point-list');
 const pointForm = $<HTMLFormElement>('#point-form');
@@ -257,7 +284,7 @@ $('#how-paste').addEventListener('click', (e) => {
   e.preventDefault();
   outlineBox.open = true;
   outlineBox.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
-  outlineInput.focus({ preventScroll: true });
+  scriptInput.focus({ preventScroll: true });
 });
 
 $('#load-sample').addEventListener('click', () => {
@@ -276,11 +303,159 @@ $('#clear').addEventListener('click', () => {
   editingId = null;
   outlineInput.value = '';
   outlineError.textContent = '';
+  scriptInput.value = '';
+  rubricInput.value = '';
+  setupError.textContent = '';
+  hidePreview();
+  updateScriptCount();
   pointError.textContent = '';
   syncInputs();
   changed(true);
   outlineBox.open = true;
-  outlineInput.focus();
+  scriptInput.focus();
+});
+
+/* ---------- Smart setup: script (+ rubric) → cards ---------- */
+
+/** Cards waiting in the preview (not saved until "Use these cards"). */
+let pendingSetup: SetupResult | null = null;
+
+function updateScriptCount() {
+  const n = scriptInput.value.length;
+  scriptCount.textContent = `${n.toLocaleString('en')} / ${MAX_SCRIPT_CHARS.toLocaleString('en')} characters`;
+  scriptCount.classList.toggle('setup__count--over', n > MAX_SCRIPT_CHARS);
+}
+scriptInput.addEventListener('input', updateScriptCount);
+
+showLinesBtn.addEventListener('click', () => {
+  lineMode.hidden = !lineMode.hidden;
+  showLinesBtn.setAttribute('aria-expanded', String(!lineMode.hidden));
+  if (!lineMode.hidden) outlineInput.focus();
+});
+
+tryMessyBtn.addEventListener('click', () => {
+  const own = scriptInput.value.trim() && scriptInput.value !== MESSY_SCRIPT;
+  if (own && !confirm('Replace what you pasted with the example script?')) return;
+  scriptInput.value = MESSY_SCRIPT;
+  rubricInput.value = MESSY_RUBRIC;
+  setupError.textContent = '';
+  updateScriptCount();
+  makeSmartBtn.focus();
+});
+
+makeSmartBtn.addEventListener('click', async () => {
+  const script = scriptInput.value;
+  const rubric = rubricInput.value.trim();
+  const problem = !script.trim()
+    ? 'Paste your script first.'
+    : script.length > MAX_SCRIPT_CHARS
+      ? `Your script is ${script.length.toLocaleString('en')} characters. The limit is ${MAX_SCRIPT_CHARS.toLocaleString('en')}: try pasting part of it.`
+      : rubric.length > MAX_RUBRIC_CHARS
+        ? `The rubric is too long (max ${MAX_RUBRIC_CHARS.toLocaleString('en')} characters).`
+        : null;
+  setupError.textContent = problem ?? '';
+  if (problem) {
+    (script.trim() && script.length <= MAX_SCRIPT_CHARS ? rubricInput : scriptInput).focus();
+    return;
+  }
+  const sentences = splitSentences(script);
+  setBusy(true);
+  const reply = await requestSetup({ sentences: sentences.map((x) => x.text), rubric });
+  setBusy(false);
+  pendingSetup = buildSetup(sentences, rubric, reply.ok ? reply.data : null, reply.ok ? undefined : reply.message);
+  renderPreview(pendingSetup);
+});
+
+function setBusy(busy: boolean) {
+  makeSmartBtn.disabled = busy;
+  tryMessyBtn.disabled = busy;
+  makeSmartBtn.toggleAttribute('aria-busy', busy);
+  makeSmartBtn.innerHTML = busy ? THINKING_HTML : '✨ Make my cards';
+}
+
+function renderPreview(result: SetupResult) {
+  const total = result.cards.reduce((t, c) => t + c.seconds, 0);
+  previewEl.hidden = false;
+  previewEl.innerHTML = `
+    <h3 id="preview-h" tabindex="-1">Your talk as ${plural(result.cards.length, 'card')} <span class="count">· ~${formatTime(total)}</span></h3>
+    ${result.source === 'ai'
+      ? '<p class="hint">Grouped by AI. Every word is yours. Times are estimates from word count; each card starts at priority 3 for you to change.</p>'
+      : `<p class="notice">${esc(result.note ?? 'Your script was split by paragraph.')}</p>`}
+    ${result.requiredPoints.length
+      ? `<p class="preview__points"><span>Required points:</span> ${result.requiredPoints.map((p) => `<span class="preview__chip">${esc(p)}</span>`).join(' ')}</p>`
+      : ''}
+    <ol class="preview__list">
+      ${result.cards.map((c, i) => `
+        <li>
+          <span class="preview__n" aria-hidden="true">${i + 1}</span>
+          <div class="preview__body">
+            <b>${esc(cardTitle(c) || '(empty card)')}</b>
+            <span class="preview__first">${esc(firstLine(c.text))}</span>
+            ${c.tags.length ? `<span class="preview__tags">Covers ${esc(c.tags.join(', '))}</span>` : ''}
+          </div>
+          <span class="preview__secs">~${c.seconds}s</span>
+        </li>`).join('')}
+    </ol>
+    <div class="buttons">
+      <button id="use-cards" class="primary" type="button">Use these cards</button>
+      <button id="cancel-preview" type="button">Cancel</button>
+    </div>`;
+  previewEl.querySelector<HTMLElement>('#preview-h')!.focus();
+}
+
+/** The card's first sentence, cut to about 90 characters. */
+function firstLine(text: string): string {
+  const first = splitSentences(text)[0]?.text ?? text;
+  return first.length > 90 ? `${first.slice(0, 88).trimEnd()}…` : first;
+}
+
+function hidePreview() {
+  pendingSetup = null;
+  previewEl.hidden = true;
+  previewEl.innerHTML = '';
+}
+
+/** True when there's nothing of the student's to lose: no cards, or the untouched sample talk. */
+function talkIsPristine(): boolean {
+  const { cards, requiredPoints } = state.talk;
+  if (cards.length === 0) return true;
+  return canonical({ cards, requiredPoints }) === canonical({ cards: sampleTalk.cards, requiredPoints: sampleTalk.requiredPoints });
+}
+
+/** JSON with object keys sorted, so a talk loaded from storage compares equal to the same talk in code. */
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, v: unknown) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)))
+      : v,
+  );
+}
+
+previewEl.addEventListener('click', (e) => {
+  const target = e.target as HTMLElement;
+  if (target.closest('#cancel-preview')) {
+    hidePreview();
+    makeSmartBtn.focus();
+    return;
+  }
+  if (!target.closest('#use-cards') || !pendingSetup) return;
+  const result = pendingSetup;
+  const existing = state.talk.cards.length;
+  if (!talkIsPristine() && !confirm(`Replace your ${plural(existing, 'card')} with ${plural(result.cards.length, 'new card')}?`)) return;
+  const { bridges: _oldBridges, ...rest } = state.talk;
+  state.talk = {
+    ...rest,
+    title: state.talk.title === sampleTalk.title ? 'My talk' : state.talk.title,
+    cards: result.cards,
+    requiredPoints: result.requiredPoints,
+  };
+  editingId = null;
+  hidePreview();
+  outlineBox.open = false;
+  syncInputs();
+  changed(true);
+  $('#talk-h').scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  rowsEl.querySelector<HTMLElement>('[data-action="edit"]')?.focus({ preventScroll: true });
 });
 
 /* ---------- Required points ---------- */
@@ -936,4 +1111,5 @@ if ('IntersectionObserver' in window) {
 /* ---------- Start ---------- */
 
 syncInputs();
+updateScriptCount();
 changed(true);

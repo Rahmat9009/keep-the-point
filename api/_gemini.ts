@@ -31,21 +31,21 @@ export const FIRST_TIMEOUT_MS = 6_000;
 /** The whole server call (both attempts) finishes within this. */
 export const TOTAL_TIMEOUT_MS = 12_000;
 export const MAX_TEXT = 1000;
-const MAX_BODY_BYTES = 20_000;
+const MAX_BODY_BYTES = 24_000;
 const PLACEHOLDER_KEY = 'paste-your-key-here';
 
 export const UNAVAILABLE = 'AI unavailable. Write your own short version.';
 
-export interface ApiResult {
+export interface ApiResult<B = { text: string }> {
   status: number;
-  body: { text: string } | { error: string };
+  body: B | { error: string };
   /** Which models were tried, with outcome and time, e.g. "gemini-3.5-flash-lite 200 900ms". No secrets. */
   trace?: string[];
 }
 
 export class InputError extends Error {}
 
-export function json(result: ApiResult): Response {
+export function json(result: ApiResult<unknown>): Response {
   return new Response(JSON.stringify(result.body), {
     status: result.status,
     headers: {
@@ -100,6 +100,8 @@ export function stringList(v: unknown, name: string, maxItems: number, maxLen: n
 /* ---------- Gemini call ---------- */
 
 export interface GeminiOptions {
+  /** Sampling temperature (default 0.4). */
+  temperature?: number;
   /** Time the first model gets (default 6s). */
   firstTimeoutMs?: number;
   /** Time for the whole call, both attempts (default 12s). */
@@ -117,8 +119,19 @@ type Attempt =
   | { kind: 'timeout' }
   | { kind: 'network' };
 
+/** Response shape for the shorten and bridge routes. */
+const TEXT_SCHEMA = { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] };
+
 /** One generateContent call that gives up after `budgetMs`. */
-async function attempt(model: string, prompt: string, key: string, budgetMs: number, doFetch: typeof fetch): Promise<Attempt> {
+async function attempt(
+  model: string,
+  prompt: string,
+  key: string,
+  budgetMs: number,
+  doFetch: typeof fetch,
+  schema: object,
+  temperature: number,
+): Promise<Attempt> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), budgetMs);
   try {
@@ -129,12 +142,8 @@ async function attempt(model: string, prompt: string, key: string, budgetMs: num
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: {
           responseMimeType: 'application/json',
-          responseJsonSchema: {
-            type: 'object',
-            properties: { text: { type: 'string' } },
-            required: ['text'],
-          },
-          temperature: 0.4,
+          responseJsonSchema: schema,
+          temperature,
           thinkingConfig: { thinkingLevel: thinkingLevelFor(model) },
         },
       }),
@@ -161,7 +170,23 @@ const shouldRetry = (a: Attempt) =>
  * The first model gets about 6s. If it times out or returns 429/500/503, the backup model
  * gets whatever is left of the 12s total.
  */
-export async function askGemini(prompt: string, opts: GeminiOptions = {}): Promise<ApiResult> {
+export function askGemini(prompt: string, opts: GeminiOptions = {}): Promise<ApiResult> {
+  return askGeminiJson(prompt, TEXT_SCHEMA, (data) => {
+    const text = extractText(data);
+    return text === null ? null : { text };
+  }, opts);
+}
+
+/**
+ * Ask Gemini for JSON matching `schema`; `extract` turns the reply into the response body
+ * (or null if it's unusable). Same models, timeouts and fallbacks as askGemini.
+ */
+export async function askGeminiJson<B>(
+  prompt: string,
+  schema: object,
+  extract: (data: unknown) => B | null,
+  opts: GeminiOptions = {},
+): Promise<ApiResult<B>> {
   const key = apiKey();
   if (!key) return { status: 503, body: { error: UNAVAILABLE } };
 
@@ -174,7 +199,7 @@ export async function askGemini(prompt: string, opts: GeminiOptions = {}): Promi
   const trace: string[] = [];
   const tryModel = async (model: string, budgetMs: number) => {
     const t0 = Date.now();
-    const a = await attempt(model, prompt, key, budgetMs, doFetch);
+    const a = await attempt(model, prompt, key, budgetMs, doFetch, schema, opts.temperature ?? 0.4);
     trace.push(`${model} ${a.kind === 'response' ? a.status : a.kind} ${Date.now() - t0}ms`);
     return a;
   };
@@ -186,10 +211,10 @@ export async function askGemini(prompt: string, opts: GeminiOptions = {}): Promi
   if (shouldRetry(result) && backup !== first && leftMs >= 500) {
     result = await tryModel(backup, leftMs);
   }
-  return { ...toApiResult(result), trace };
+  return { ...toApiResult(result, extract), trace };
 }
 
-function toApiResult(a: Attempt): ApiResult {
+function toApiResult<B>(a: Attempt, extract: (data: unknown) => B | null): ApiResult<B> {
   if (a.kind === 'timeout') return { status: 504, body: { error: 'The AI took too long to answer. Try again in a moment.' } };
   if (a.kind === 'network') return { status: 502, body: { error: "Couldn't reach the AI service." } };
   if (a.status === 429) return { status: 429, body: { error: 'The AI is busy right now (free-tier limit). Try again in a minute.' } };
@@ -197,9 +222,27 @@ function toApiResult(a: Attempt): ApiResult {
     return { status: 502, body: { error: 'The AI service rejected the request. Check the API key.' } };
   }
   if (a.status < 200 || a.status >= 300) return { status: 502, body: { error: 'The AI service had a problem. Try again later.' } };
-  const text = extractText(a.data);
-  if (text === null) return { status: 502, body: { error: 'The AI sent back something unexpected. Try again.' } };
-  return { status: 200, body: { text } };
+  const body = extract(a.data);
+  if (body === null) return { status: 502, body: { error: 'The AI sent back something unexpected. Try again.' } };
+  return { status: 200, body };
+}
+
+/** The JSON object a generateContent reply carries in its (non-thought) text parts, or null. */
+export function extractJson(data: unknown): unknown {
+  try {
+    const parts = (data as { candidates?: { content?: { parts?: { text?: unknown; thought?: unknown }[] } }[] })
+      ?.candidates?.[0]?.content?.parts;
+    if (!Array.isArray(parts)) return null;
+    const raw = parts
+      .filter((p) => typeof p.text === 'string' && !p.thought)
+      .map((p) => p.text as string)
+      .join('')
+      .trim()
+      .replace(/^```(?:json)?\s*|\s*```$/g, '');
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return null;
+  }
 }
 
 /** Pull `text` out of a generateContent response whose part is JSON like {"text": "..."}. */
@@ -225,7 +268,7 @@ export function extractText(data: unknown): string | null {
 }
 
 /** Run a handler, turning InputErrors into 400s. */
-export async function handle(req: Request, run: (body: unknown) => Promise<ApiResult>): Promise<Response> {
+export async function handle(req: Request, run: (body: unknown) => Promise<ApiResult<unknown>>): Promise<Response> {
   try {
     if (req.method !== 'POST') return json({ status: 405, body: { error: 'Use POST.' } });
     return json(await run(await readJson(req)));

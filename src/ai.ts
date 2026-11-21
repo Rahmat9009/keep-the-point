@@ -55,3 +55,43 @@ async function post(url: string, body: unknown, unavailable: string, fetchImpl: 
     clearTimeout(timer);
   }
 }
+
+/* ---------- Smart setup ---------- */
+
+export const SETUP_UNAVAILABLE = 'AI unavailable.';
+/** The setup route may take up to 16s on the server (it groups a whole script). */
+export const SETUP_CLIENT_TIMEOUT_MS = 20_000;
+
+export interface SetupRequest {
+  sentences: string[];
+  rubric: string;
+}
+
+export interface SetupReply {
+  cards: { start: number; end: number; title?: string; points?: string[] }[];
+  points: string[];
+}
+
+export type SetupResultMsg = { ok: true; data: SetupReply } | { ok: false; message: string };
+
+/** Ask /api/setup how to group the sentences. Never throws. */
+export async function requestSetup(req: SetupRequest, fetchImpl: typeof fetch = fetch): Promise<SetupResultMsg> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), SETUP_CLIENT_TIMEOUT_MS);
+  try {
+    const res = await fetchImpl('/api/setup', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(req),
+      signal: controller.signal,
+    });
+    const data = (await res.json().catch(() => null)) as (SetupReply & { error?: unknown }) | null;
+    if (res.ok && data && Array.isArray(data.cards) && Array.isArray(data.points)) return { ok: true, data };
+    const detail = typeof data?.error === 'string' && !data.error.startsWith('AI unavailable') ? ` (${data.error})` : '';
+    return { ok: false, message: `${SETUP_UNAVAILABLE}${detail}` };
+  } catch {
+    return { ok: false, message: SETUP_UNAVAILABLE };
+  } finally {
+    clearTimeout(timer);
+  }
+}

@@ -7,7 +7,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
  * only VITE_-prefixed variables are ever exposed to the browser bundle.
  */
 function devApi(): Plugin {
-  const routes: Record<string, string> = { '/api/shorten': '/api/shorten.ts', '/api/bridge': '/api/bridge.ts' };
+  const routes: Record<string, string> = { '/api/shorten': '/api/shorten.ts', '/api/bridge': '/api/bridge.ts', '/api/setup': '/api/setup.ts' };
   return {
     name: 'keep-the-point-dev-api',
     apply: 'serve',
