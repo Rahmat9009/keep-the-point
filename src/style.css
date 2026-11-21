@@ -53,7 +53,7 @@ button.danger { color: var(--pink-ink); border-color: currentColor; }
   max-width: calc(var(--gutter) + var(--main) + var(--margin-col) + 2 * var(--col-gap) + 2 * var(--page-pad));
   margin: 0 auto; padding: var(--s-7) var(--page-pad) var(--s-8);
 }
-.top, .hero { margin-left: calc(var(--gutter) + var(--col-gap)); max-width: var(--main); }
+.top, .hero, .actions--top { margin-left: calc(var(--gutter) + var(--col-gap)); max-width: var(--main); }
 .grid3 { display: grid; grid-template-columns: var(--gutter) minmax(0, var(--main)) var(--margin-col); column-gap: var(--col-gap); }
 .grid3 > :first-child { grid-column: 2; }
 
@@ -172,6 +172,9 @@ button.danger { color: var(--pink-ink); border-color: currentColor; }
 .inline-form button { padding: 6px 12px; }
 .actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--s-2); margin-top: var(--s-4); }
 .actions button { font-size: 0.95rem; }
+.actions--top { margin-top: var(--s-2); }
+.actions--top .rehearse-note { flex-basis: 100%; margin: 0; }
+.actions--top .rehearse-note:empty { display: none; }
 
 /* ---------- Practice insights ---------- */
 .insights { margin-top: var(--s-5); padding-top: var(--s-4); border-top: var(--hairline); outline: none; }
@@ -340,14 +343,16 @@ button#make-smart[aria-busy] { opacity: 1; }
   .card__note b { display: inline; margin-right: 6px; }
   .card__note br { display: none; }
   .card__note .linkbtn { margin: 0 0 0 6px; }
-  .top, .hero { max-width: none; }
+  .top, .hero, .actions--top { max-width: none; }
 }
 
 /* ---------- Phone ---------- */
 @media (max-width: 759px) {
   :root { --gutter: 40px; --col-gap: 12px; --page-pad: 16px; }
   .page { padding-top: var(--s-5); }
-  .top { margin-left: 0; }
+  .top, .actions--top { margin-left: 0; }
+  .actions--top { gap: 6px; }
+  .actions--top button { padding-left: 12px; padding-right: 12px; font-size: 0.88rem; }
   .hero { margin-left: calc(-1 * var(--page-pad)); margin-right: calc(-1 * var(--page-pad)); padding: 10px var(--page-pad) 8px; margin-top: var(--s-4); }
   .top__brand { gap: var(--s-3); }
   .talk-title { font-size: 1.05rem; }

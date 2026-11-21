@@ -69,6 +69,14 @@ app.innerHTML = `
       <p id="limit-error" class="error" role="alert"></p>
     </section>
 
+    <div class="actions actions--top" role="group" aria-label="Practise and present">
+      <button id="open-cues" class="primary" type="button" aria-describedby="rehearse-note">Open cue cards</button>
+      <button id="rehearse-full" type="button">▶ Rehearse full talk</button>
+      <button id="rehearse-short" type="button" aria-describedby="rehearse-note">▶ Rehearse shortened talk</button>
+      <button id="present-live" type="button">▶ Present live</button>
+      <p id="rehearse-note" class="hint rehearse-note"></p>
+    </div>
+
     <section class="talk" aria-labelledby="talk-h">
       <div class="grid3 intro">
         <div class="intro__main">
@@ -87,13 +95,6 @@ app.innerHTML = `
             <button type="submit">Add point</button>
           </form>
           <p id="point-error" class="error" role="alert"></p>
-          <div class="actions">
-            <button id="open-cues" class="primary" type="button" aria-describedby="rehearse-note">Open cue cards</button>
-            <button id="rehearse-full" type="button">▶ Rehearse full talk</button>
-            <button id="rehearse-short" type="button" aria-describedby="rehearse-note">▶ Rehearse shortened talk</button>
-            <button id="present-live" type="button">▶ Present live</button>
-            <p id="rehearse-note" class="hint rehearse-note"></p>
-          </div>
           <section id="insights" class="insights" aria-labelledby="insights-h" tabindex="-1">
             <h3 id="insights-h">Practice insights</h3>
             <div id="insights-body"></div>
